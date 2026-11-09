@@ -1,0 +1,2754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Embody Viewer</title>
+<style>
+  :root {
+    --pill: rgba(243, 239, 255, 0.86);
+    --pill-text: #231a5a;
+    --glass: rgba(22, 14, 62, 0.66);
+    --glass-line: rgba(255, 255, 255, 0.22);
+    --accent: #ff5fc8;
+    --hp: #9b6bff;
+    --vigor: #f2c230;
+    --water: #45b8ec;
+    --ui: "Segoe UI Variable Display", "Segoe UI", ui-rounded, "SF Pro Rounded", system-ui, sans-serif;
+    --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #120a35; color: #fff; font-family: var(--ui); }
+  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: grab; touch-action: none; }
+  #gl.dragging { cursor: grabbing; }
+  #tags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+
+  /* ---------- pills */
+  .pill {
+    background: var(--pill); color: var(--pill-text); border-radius: 999px;
+    border: 1.5px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 6px 22px rgba(18, 6, 70, 0.35);
+    backdrop-filter: blur(10px) saturate(1.3); -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  }
+  .dark { background: var(--glass); color: #fff; border-color: var(--glass-line); }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  /* ---------- top HUD */
+  #vitals { position: fixed; top: 14px; left: 14px; padding: 9px 18px 10px; display: flex; gap: 18px; align-items: center; }
+  #vitals .who { font-weight: 700; font-size: 13px; line-height: 1.15; max-width: 150px; }
+  #vitals .who small { display: block; font-weight: 500; opacity: .65; font-size: 11px; }
+  .meter { display: grid; gap: 4px; min-width: 74px; }
+  .meter .lbl { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+  .meter .lbl i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; box-shadow: inset 0 0 0 2px rgba(255,255,255,.6); }
+  .meter .lbl b { margin-left: auto; font-weight: 600; opacity: .6; font-size: 11px; font-variant-numeric: tabular-nums; }
+  .meter .bar { height: 6px; border-radius: 99px; background: rgba(35, 26, 90, 0.14); overflow: hidden; }
+  .meter .bar > span { display: block; height: 100%; border-radius: 99px; transition: width .35s ease; }
+  .flags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .flag { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 99px; background: #231a5a; color: #fff; }
+  .flag.warn { background: #ff5f7e; }
+
+  #place {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    width: min(560px, calc(100vw - 720px)); min-width: 300px;
+    padding: 9px 20px; cursor: pointer; text-align: left;
+    background: rgba(255,255,255,.08); color: #fff; border: 2px solid rgba(255,255,255,.85);
+  }
+  #place .row1 { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #place .row1 svg { flex: none; opacity: .9; }
+  #place .crumb { opacity: .6; font-weight: 500; }
+  #place .row2 { font-size: 12px; opacity: .78; margin: 2px 0 0 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #place .desc { display: none; font-size: 13px; line-height: 1.45; margin: 8px 4px 4px 30px; opacity: .92; white-space: normal; }
+  #place.open { border-radius: 22px; }
+  #place.open .desc { display: block; }
+
+  #topright { position: fixed; top: 14px; right: 14px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  .seg { display: flex; padding: 3px; gap: 2px; }
+  .seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 99px; font-size: 12px; font-weight: 600; color: var(--pill-text); }
+  .seg button.on { background: #231a5a; color: #fff; }
+  #lat { padding: 5px 12px; font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; font-variant-numeric: tabular-nums; }
+  #lat i { width: 8px; height: 8px; border-radius: 50%; background: #ff5f7e; display: inline-block; }
+  #lat.live i { background: #3ee08f; box-shadow: 0 0 0 3px rgba(62,224,143,.25); }
+
+  /* ---------- tags in the scene */
+  .tag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; will-change: transform; }
+  .tag .chip { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 3px 10px 3px 7px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tag .chip i { width: 8px; height: 8px; border-radius: 50%; background: #6b5cff; display: inline-block; }
+  .tag.you .chip i { background: var(--accent); }
+  .tag.down .chip i { background: #ff5f7e; }
+  .tag.exit .chip i { background: #7dfcff; }
+  .tag.thing .chip { font-size: 11px; padding: 2px 9px 2px 6px; opacity: .92; }
+  .tag.sel .chip { background: #ffe36a; border-color: #fff; }
+  .tag .st { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; opacity: .55; }
+  .tag kbd { font: 700 10px var(--mono); background: #231a5a; color: #fff; border-radius: 5px; padding: 1px 5px; }
+  .tag .bubble { max-width: 300px; padding: 7px 13px; border-radius: 16px; font-size: 13px; line-height: 1.35; white-space: normal; text-align: left; }
+  .tag .act { font-size: 11px; padding: 2px 9px; border-radius: 99px; background: rgba(22,14,62,.7); color: #fff; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---------- bottom HUD */
+  #bottom { position: fixed; left: 14px; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+  #captions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; min-height: 30px; }
+  .cap { pointer-events: auto; display: flex; align-items: center; gap: 7px; padding: 5px 13px 5px 9px; font-size: 12.5px; max-width: 440px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity .6s; }
+  .cap::before { content: ""; flex: none; width: 9px; height: 9px; border-radius: 50%; border: 2px solid currentColor; opacity: .55; }
+  .cap.pending::before { border-style: dotted; animation: spin 1s linear infinite; }
+  .cap.fail { background: #ffd6de; }
+  .cap.old { opacity: .55; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #controls { display: flex; gap: 10px; align-items: center; }
+  #controls > * { pointer-events: auto; }
+  #actionsBtn { display: flex; align-items: center; gap: 9px; padding: 9px 16px; font-weight: 700; font-size: 14px; }
+  .beta { font-size: 10px; font-weight: 700; letter-spacing: .06em; border: 1.5px solid currentColor; border-radius: 99px; padding: 1px 7px; opacity: .85; }
+  #cmdWrap { flex: 1; max-width: 720px; margin: 0 auto; position: relative; }
+  #sayForm { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 16px; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.85); color: #fff; }
+  #sayForm .prompt { font: 700 20px/1 var(--mono); opacity: .9; }
+  #suggest { position: absolute; left: 12px; right: 12px; bottom: calc(100% + 8px); border-radius: 18px; padding: 6px; display: none; flex-direction: column; gap: 2px; max-height: 46vh; overflow: auto; }
+  #suggest.open { display: flex; }
+  .sg { display: flex; align-items: baseline; gap: 8px; padding: 7px 12px; border-radius: 12px; font-size: 13.5px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+  .sg.on { background: rgba(255,255,255,.16); }
+  .sg .v { font-weight: 700; color: #ffe36a; }
+  .sg.say .v { color: #9fe8ff; }
+  .sg.raw .v, .sg.complete .v { color: #ffb3e6; }
+  .sg .t { font-weight: 600; }
+  .sg .p { opacity: .72; overflow: hidden; text-overflow: ellipsis; }
+  .sg .r { margin-left: auto; padding-left: 10px; font-size: 11.5px; opacity: .62; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+  .sg.no { opacity: .5; }
+  .sg.plan { white-space: normal; }
+  .sg.plan .steps { line-height: 1.5; }
+  .sg .sep { opacity: .45; }
+
+  /* ---------- the narrator's page */
+  #narr {
+    position: fixed; left: 14px; top: 84px; width: min(440px, calc(100vw - 28px)); max-height: 44vh; overflow: hidden;
+    padding: 14px 18px; border-radius: 20px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;
+    background: rgba(16, 9, 46, .58); border: 1px solid rgba(255,255,255,.16);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    font: 15px/1.6 "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif; color: #f3eeff;
+    opacity: 0; transform: translateY(-6px); transition: opacity .4s, transform .4s; pointer-events: none;
+  }
+  #narr.show { opacity: 1; transform: none; pointer-events: auto; cursor: pointer; }
+  body.tray-open #narr { opacity: 0; pointer-events: none; }
+  #narr p { margin: 0; white-space: pre-line; transition: opacity .6s; }
+  #narr em { color: #ffd2f0; }
+  #narr p.epi { text-align: center; font-style: italic; color: #e6dcff; padding: 2px 8px 10px; border-bottom: 1px solid rgba(255,255,255,.12); }
+  #narr p.epi em { color: inherit; }
+  #narr .caret { opacity: .75; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #sayForm input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: #fff; font: 500 15px var(--ui); }
+  #sayForm input::placeholder { color: rgba(255,255,255,.7); }
+  #sayTo { font-size: 12px; font-weight: 600; opacity: .8; white-space: nowrap; }
+  #sayForm button { border: 0; background: transparent; color: #fff; font-weight: 700; font-size: 15px; padding: 4px 10px; }
+  #logBtn { padding: 9px 16px; font-weight: 700; font-size: 14px; }
+  #help { position: fixed; right: 16px; top: 170px; font-size: 11px; opacity: .55; text-align: right; line-height: 1.6; pointer-events: none; text-shadow: 0 1px 4px #000; }
+
+  /* ---------- tray */
+  #tray { position: fixed; left: 14px; bottom: 112px; width: min(460px, calc(100vw - 28px)); max-height: calc(100vh - 220px); overflow: auto; border-radius: 22px; padding: 14px; display: none; flex-direction: column; gap: 12px; }
+  #tray.open { display: flex; }
+  #tray h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button { border: 1.5px solid var(--glass-line); background: rgba(255,255,255,.07); border-radius: 99px; padding: 4px 11px; font-size: 12.5px; font-weight: 600; color: #fff; }
+  .chips button.on { background: #ffe36a; color: #231a5a; border-color: #ffe36a; }
+  .chips button small { opacity: .6; font-weight: 500; }
+  .verbs { display: flex; flex-wrap: wrap; gap: 6px; }
+  .verb { border: 0; background: var(--pill); color: var(--pill-text); border-radius: 99px; padding: 6px 14px; font-weight: 700; font-size: 13px; }
+  .verb:hover { background: #fff; }
+  .verb[disabled] { opacity: .38; cursor: not-allowed; }
+  .verb.form::after { content: " …"; }
+  .why { font-size: 11.5px; opacity: .6; margin-top: 6px; line-height: 1.5; }
+  #trayForm { display: grid; gap: 8px; padding: 10px; border-radius: 16px; background: rgba(255,255,255,.07); }
+  #trayForm[hidden] { display: none; }
+  #trayForm .fh { font-weight: 700; font-size: 13px; }
+  #trayForm label { display: grid; gap: 4px; font-size: 11.5px; opacity: .9; }
+  #trayForm input[type=text], #trayForm input[type=number], #trayForm select { font: 500 14px var(--ui); padding: 7px 12px; border-radius: 12px; border: 1.5px solid var(--glass-line); background: rgba(0,0,0,.25); color: #fff; outline: 0; }
+  #trayForm label.cb { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #trayForm .row { display: flex; gap: 8px; }
+  .exitrow { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+  .exitrow kbd { font: 700 11px var(--mono); background: rgba(255,255,255,.15); border-radius: 6px; padding: 2px 6px; }
+  .exitrow span { flex: 1; font-weight: 600; }
+  .exitrow .verb { padding: 4px 11px; font-size: 12px; }
+
+  /* ---------- log */
+  #log { position: fixed; top: 112px; right: 14px; bottom: 112px; width: min(400px, calc(100vw - 28px)); border-radius: 22px; padding: 12px 14px; overflow: auto; display: none; font: 12px/1.5 var(--mono); }
+  #log.open { display: block; }
+  #log .ev { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.06); overflow-wrap: anywhere; }
+  #log .ev .n { opacity: .35; margin-right: 6px; }
+  #log .ev.say { color: #fff; }
+  #log .ev.act, #log .ev.minor { color: rgba(255,255,255,.5); }
+  #log .ev.fight { color: #ff8fa6; }
+  #log .ev.water { color: #8fdcff; }
+  #log .ev.move { color: #b9f5c9; }
+  #log .ev.narr { color: #ffe9a8; }
+  #log .ev.fail { color: #ff8fa6; }
+  #log .ev .detail { display: block; opacity: .7; margin-left: 14px; }
+
+  #toast { position: fixed; top: 74px; left: 50%; transform: translateX(-50%); padding: 8px 18px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .25s; pointer-events: none; max-width: 80vw; text-align: center; }
+  #toast.show { opacity: 1; }
+  @media (max-width: 1180px) {
+    #place { top: 76px; left: 14px; transform: none; width: min(520px, calc(100vw - 28px)); min-width: 0; }
+    #place .crumb { display: none; }
+    #log { top: 150px; }
+    #narr { top: 150px; }
+  }
+  @media (max-width: 980px) { #help { display: none; } }
+  @media (max-width: 640px) {
+    #vitals { left: 10px; right: 10px; top: 10px; flex-wrap: wrap; gap: 6px 14px; padding: 8px 14px; border-radius: 22px; }
+    #vitals .who { flex-basis: 100%; max-width: none; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+    #vitals .who small { display: inline; }
+    .meter { min-width: 0; flex: 1; }
+    #place { top: 100px; left: 10px; right: 10px; width: auto; padding: 7px 14px; }
+    #place .row1 { font-size: 15px; }
+    #topright { top: 160px; left: 10px; right: 10px; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: 6px; scrollbar-width: none; }
+    #topright > * { flex: none; }
+    .seg button { padding: 4px 9px; font-size: 11px; }
+    #lat { font-size: 10.5px; padding: 4px 10px; }
+    #narr { top: 200px; left: 10px; right: 10px; width: auto; max-height: 28vh; font-size: 14px; padding: 10px 14px; gap: 8px; }
+    #narr p:nth-last-child(n+4) { display: none; }
+    #log { top: 200px; left: 10px; right: 10px; width: auto; bottom: 150px; }
+    #bottom { left: 10px; right: 10px; bottom: 10px; gap: 8px; }
+    #controls { flex-wrap: wrap; gap: 8px; }
+    #cmdWrap { order: -1; flex-basis: 100%; max-width: none; }
+    #actionsBtn, #logBtn { padding: 7px 14px; font-size: 13px; }
+    #logBtn { margin-left: auto; }
+    #tray { left: 10px; right: 10px; width: auto; bottom: 150px; max-height: calc(100vh - 370px); }
+    #sayForm input { font-size: 14px; }
+    #sayForm button { padding: 4px 6px; }
+    .cap { max-width: 100%; }
+    #captions .cap:nth-last-child(n+3) { display: none; }
+    .tag .bubble { max-width: 200px; font-size: 12px; }
+  }
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; font: 600 14px var(--mono); letter-spacing: .1em; color: #cbbff5; pointer-events: none; transition: opacity .4s; }
+  #boot.gone { opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div id="tags"></div>
+
+<div id="vitals" class="pill"></div>
+<button id="place" class="pill" title="Show the description"></button>
+<div id="topright">
+  <div class="pill seg" id="modeSeg"><button data-mode="0" class="on">Halftone</button><button data-mode="1">ASCII</button></div>
+  <div class="pill seg" id="palSeg"><button data-pal="neon" class="on">Neon</button><button data-pal="desert">Desert</button></div>
+  <div class="pill seg" id="narrSeg"><button data-n="1" class="on">Narrator</button><button data-n="0">Off</button></div>
+  <div class="pill" id="lat"><i></i><span>connecting…</span></div>
+</div>
+
+<div id="tray" class="dark pill">
+  <div><h4>Target</h4><div class="chips" id="trayTargets"></div></div>
+  <div><h4 id="verbsHead">Actions</h4><div class="verbs" id="trayVerbs"></div><div class="why" id="trayWhy"></div></div>
+  <form id="trayForm" hidden></form>
+  <div id="trayExitsWrap"><h4>Exits</h4><div id="trayExits"></div></div>
+</div>
+<div id="log" class="dark pill"></div>
+
+<div id="bottom">
+  <div id="captions"></div>
+  <div id="controls">
+    <button id="actionsBtn" class="pill dark">Actions <span class="beta">BETA</span></button>
+    <div id="cmdWrap">
+      <div id="suggest" class="pill dark"></div>
+      <form id="sayForm" class="pill" autocomplete="off">
+        <span class="prompt">›</span>
+        <input id="sayInput" placeholder="What do you do?  I walk over to the cistern and drink · say &quot;hello&quot; to them" maxlength="600" spellcheck="false">
+        <span id="sayTo"></span>
+        <button type="submit">Do</button>
+      </form>
+    </div>
+    <button id="logBtn" class="pill dark">Log</button>
+  </div>
+</div>
+<div id="narr" title="Click to finish the line"></div>
+<div id="help">drag to orbit · wheel to zoom · click someone, something or the ground<br>⏎ or / type what you do · 1–9 exits · A actions · L log · N narrator · H halftone/ascii · P palette</div>
+<div id="toast" class="pill"></div>
+<div id="boot">CONNECTING TO THE WORLD…</div>
+
+<script>
+'use strict';
+// =====================================================================
+//  Shaders
+// =====================================================================
+const MAXP = 60;
+
+const VS = `#version 300 es
+in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+// Pass 1: raymarch the diorama at low resolution.
+// Output: r = luminance, g = material/15, b = fog (or sky/sun gradient), a = grid line.
+const FS_SCENE = `#version 300 es
+precision highp float;
+precision highp int;
+#define MAXP ${MAXP}
+uniform vec2 uRes;
+uniform vec3 uCamPos;
+uniform vec3 uCamR;
+uniform vec3 uCamU;
+uniform vec3 uCamF;
+uniform float uTan;
+uniform float uTime;
+uniform vec3 uSun;
+uniform float uNight;
+uniform float uFogK;
+uniform vec4 uTerr;
+uniform vec4 uRoad;
+uniform vec4 uBound;
+uniform int uCount;
+uniform vec4 uA[MAXP];
+uniform vec4 uB[MAXP];
+uniform vec4 uC[MAXP];
+out vec4 o;
+
+float terrain(vec2 p) {
+  float r = length(p);
+  float d = 0.55 * sin(0.23 * p.x + 0.5) * cos(0.19 * p.y)
+          + 0.30 * sin(0.51 * p.x - 0.37 * p.y + 1.3)
+          + 0.15 * sin(1.13 * p.x + 0.79 * p.y);
+  d *= uTerr.x * smoothstep(uTerr.y, uTerr.y + 8.0, r);
+  float a = atan(p.y, p.x);
+  float m = smoothstep(26.0, 46.0, r) * uTerr.z
+          * (0.62 + 0.38 * sin(a * 3.0 + 1.7))
+          * (0.78 + 0.22 * sin(a * 9.0 + r * 0.2));
+  return d + m;
+}
+
+float sdBox(vec3 p, vec3 b, float r) {
+  vec3 q = abs(p) - b + r;
+  return length(max(q, 0.0)) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+float sdCap(vec3 p, float h, float r) { p.y -= clamp(p.y, -h, h); return length(p) - r; }
+float sdCyl(vec3 p, float r, float h) {
+  vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, h);
+  return min(max(d.x, d.y), 0.0) + length(max(d, 0.0));
+}
+float sdPrism(vec3 p, vec2 h) {
+  vec3 q = abs(p);
+  return max(q.z - h.y, max(q.x * 0.866025 + p.y * 0.5, -p.y) - h.x * 0.5);
+}
+float smin(float a, float b, float k) {
+  float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+  return mix(b, a, h) - k * h * (1.0 - h);
+}
+float sdSeg(vec3 p, vec3 a, vec3 b, float r) {
+  vec3 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - r;
+}
+float sdTaper(vec3 p, vec3 a, vec3 b, float ra, float rb) {
+  vec3 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - mix(ra, rb, h);
+}
+
+// A person: feet at y = 0, facing +z, about 1.8 tall.
+// C = (walk 0..1, style, stride phase, flags: +1 lying, +2 armed)
+float sdHuman(vec3 p, vec4 C) {
+  float walk = C.x, ph = C.z;
+  int style = int(C.y + 0.5);
+  bool armed = C.w > 1.5;
+  float sw = sin(ph) * 0.55 * walk;
+  p.y -= abs(cos(ph)) * 0.035 * walk;
+  // head, neck, torso, shoulders, hips
+  float d = length(p - vec3(0.0, 1.62, 0.02)) - 0.12;
+  d = smin(d, sdSeg(p, vec3(0.0, 1.43, 0.0), vec3(0.0, 1.52, 0.01), 0.055), 0.05);
+  d = smin(d, sdTaper(p, vec3(0.0, 0.98, 0.0), vec3(0.0, 1.32, 0.0), 0.13, 0.165), 0.06);
+  d = smin(d, sdSeg(p, vec3(-0.17, 1.37, 0.0), vec3(0.17, 1.37, 0.0), 0.07), 0.06);
+  d = smin(d, sdSeg(p, vec3(-0.09, 0.93, 0.0), vec3(0.09, 0.93, 0.0), 0.11), 0.06);
+  // limbs: mirror and evaluate the near side; each side swings opposite
+  float s = p.x < 0.0 ? -1.0 : 1.0;
+  vec3 q = vec3(abs(p.x), p.y, p.z);
+  float a = s * sw;
+  vec3 hip = vec3(0.1, 0.9, 0.0);
+  vec3 knee = hip + vec3(0.01, -0.43 * cos(a), 0.43 * sin(a));
+  float kb = max(0.0, -a) * 0.9 + 0.04;
+  vec3 ankle = knee + vec3(0.0, -0.42 * cos(a - kb), 0.42 * sin(a - kb));
+  float leg = min(sdTaper(q, hip, knee, 0.085, 0.062), sdTaper(q, knee, ankle, 0.06, 0.045));
+  leg = min(leg, sdSeg(q, ankle + vec3(0.0, -0.025, -0.03), ankle + vec3(0.0, -0.03, 0.1), 0.038));
+  d = smin(d, leg, 0.04);
+  float b = -a * 0.8;
+  vec3 sh = vec3(0.21, 1.36, 0.0);
+  vec3 elb = sh + vec3(0.04, -0.28 * cos(b), 0.28 * sin(b));
+  vec3 hand = elb + vec3(0.01, -0.26 * cos(b + 0.3), 0.26 * sin(b + 0.3));
+  d = smin(d, min(sdTaper(q, sh, elb, 0.058, 0.048), sdTaper(q, elb, hand, 0.046, 0.04)), 0.035);
+  if (style == 1) {          // guard: helmet and pauldrons
+    d = smin(d, length(p - vec3(0.0, 1.67, 0.0)) - 0.135, 0.02);
+    d = min(d, sdSeg(q, vec3(0.17, 1.41, 0.0), vec3(0.27, 1.37, 0.0), 0.085));
+  } else if (style == 2) {   // hood and cloak
+    d = smin(d, length(p - vec3(0.0, 1.64, -0.035)) - 0.155, 0.03);
+    d = smin(d, sdTaper(p, vec3(0.0, 1.4, -0.05), vec3(0.0, 0.45, -0.08), 0.19, 0.33), 0.05);
+  } else if (style == 3) {   // carrier: pack and wide hat
+    d = smin(d, sdBox(p - vec3(0.0, 1.13, -0.24), vec3(0.17, 0.25, 0.11), 0.04), 0.03);
+    d = min(d, sdCyl(p - vec3(0.0, 1.75, 0.0), 0.27, 0.014));
+    d = smin(d, length(p - vec3(0.0, 1.78, 0.0)) - 0.1, 0.03);
+  } else if (style == 4) {   // long coat
+    d = smin(d, sdTaper(p, vec3(0.0, 1.3, 0.0), vec3(0.0, 0.28, 0.0), 0.16, 0.3), 0.05);
+  }
+  if (armed) {               // blade in the right hand
+    float br = -sw * 0.8;
+    vec3 e2 = vec3(0.25, 1.36 - 0.28 * cos(br), 0.28 * sin(br));
+    vec3 h2 = e2 + vec3(0.01, -0.26 * cos(br + 0.3), 0.26 * sin(br + 0.3));
+    d = min(d, sdSeg(p, h2, h2 + vec3(0.03, -0.12, 0.62), 0.016));
+  }
+  return d * 0.85;
+}
+
+vec2 map(vec3 p) {
+  vec2 res = vec2((p.y - terrain(p.xz)) * 0.5, uTerr.w);
+  if (length(p - uBound.xyz) - uBound.w > res.x) return res;
+  for (int i = 0; i < MAXP; i++) {
+    if (i >= uCount) break;
+    vec4 A = uA[i]; vec4 B = uB[i]; vec4 C = uC[i];
+    vec3 q = p - B.xyz;
+    q.xz = vec2(A.z * q.x + A.w * q.z, -A.w * q.x + A.z * q.z);
+    int t = int(A.x + 0.5);
+    float d;
+    if (t == 0) d = sdBox(q, C.xyz, B.w);
+    else if (t == 1) d = length(q) - B.w;
+    else if (t == 2) { if (C.x > 0.5) q = q.yxz; d = sdCap(q, C.w, B.w); }
+    else if (t == 3) d = sdCyl(q, B.w, C.w);
+    else if (t == 4) d = sdPrism(q, C.xy);
+    else {
+      // person: cheap bounding sphere first, full body only when close
+      vec3 bq = q / B.w;
+      if (mod(C.w, 2.0) > 0.5) bq = vec3(-bq.z, bq.x + 0.9, bq.y - 0.16);
+      float bd = (length(bq - vec3(0.0, 0.95, 0.0)) - 1.05) * B.w;
+      d = bd > res.x ? bd : sdHuman(bq, C) * B.w;
+    }
+    if (d < res.x) res = vec2(d, A.y);
+  }
+  return res;
+}
+
+vec3 calcN(vec3 p) {
+  const float e = 0.0015;
+  const vec2 k = vec2(1.0, -1.0);
+  return normalize(k.xyy * map(p + k.xyy * e).x + k.yyx * map(p + k.yyx * e).x +
+                   k.yxy * map(p + k.yxy * e).x + k.xxx * map(p + k.xxx * e).x);
+}
+
+float shadow(vec3 ro, vec3 rd) {
+  float res = 1.0, t = 0.06;
+  for (int i = 0; i < 28; i++) {
+    float h = map(ro + rd * t).x;
+    res = min(res, 10.0 * h / t);
+    t += clamp(h, 0.06, 0.6);
+    if (res < 0.02 || t > 22.0) break;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / uRes * 2.0 - 1.0;
+  float asp = uRes.x / uRes.y;
+  vec3 rd = normalize(uCamF + uv.x * uCamR * uTan * asp + uv.y * uCamU * uTan);
+  vec3 ro = uCamPos;
+  float t = 0.0, m = 0.0;
+  bool hit = false;
+  for (int i = 0; i < 120; i++) {
+    vec3 p = ro + rd * t;
+    if (rd.y > 0.0 && p.y > 16.0) break;
+    vec2 h = map(p);
+    if (h.x < 0.0008 * t + 0.0004) { hit = true; m = h.y; break; }
+    t += h.x;
+    if (t > 140.0) break;
+  }
+  vec3 p = ro + rd * t;
+  vec2 gw = fwidth(p.xz);
+  float lum = 0.0, b = 0.0, line = 0.0, mat = 15.0;
+
+  if (!hit) {
+    float sd = acos(clamp(dot(rd, uSun), -1.0, 1.0));
+    float sunR = mix(0.17, 0.09, uNight);
+    float up = clamp(rd.y * 2.2, 0.0, 1.0);
+    lum = mix(0.9, 0.62, up) + 0.22 * exp(-sd * 5.0) * (1.0 - uNight);
+    b = up;
+    if (uNight > 0.5) {
+      lum = mix(0.34, 0.12, up);
+      vec3 sp = floor(rd * 260.0);
+      if (fract(sin(dot(sp, vec3(12.9898, 78.233, 37.719))) * 43758.5453) > 0.996) lum = 0.95;
+    }
+    if (sd < sunR) {
+      float sv = clamp((rd.y - uSun.y) / sunR, -1.0, 1.0);
+      float band = fract(sv * 4.0 - uTime * 0.15);
+      bool cut = sv < 0.1 && band < 0.32 * (0.1 - sv);
+      if (!cut) { mat = 14.0; b = sv * 0.5 + 0.5; lum = mix(0.42, 1.0, b); }
+    }
+  } else {
+    mat = m;
+    int mi = int(m + 0.5);
+    vec3 n = calcN(p);
+    float dif = max(dot(n, uSun), 0.0);
+    float sh = dif > 0.0 ? shadow(p + n * 0.03, uSun) : 0.0;
+    float amb = 0.3 + 0.2 * n.y;
+    float rim = pow(1.0 - max(dot(n, -rd), 0.0), 3.0);
+    bool ground = mi == int(uTerr.w + 0.5);
+    if (ground && uRoad.x > 0.0 && abs(dot(p.xz, vec2(-uRoad.z, uRoad.y))) < uRoad.x) mat = uRoad.w;
+    lum = amb + dif * sh * 0.85 + rim * 0.2;
+    if (mi == 5) lum = 0.62 + 0.22 * sin(p.x * 4.0 + uTime * 2.1) * sin(p.z * 3.6 - uTime * 1.7);
+    if (mi == 8) lum += 0.7 * pow(max(dot(reflect(rd, n), uSun), 0.0), 20.0);
+    if (mi == 12) lum = 0.75 + 0.2 * sin(uTime * 3.0 + p.y * 2.0);
+    // people are silhouettes: dark bodies with a bright rim where light wraps the edge
+    if (mi == 3 || mi == 4 || mi == 10 || mi == 11) lum = 0.07 + 0.95 * pow(1.0 - max(dot(n, -rd), 0.0), 2.2) + 0.1 * dif * sh;
+    lum *= mix(1.0, 0.5, uNight);
+    float fog = 1.0 - exp(-t * uFogK);
+    lum = mix(lum, mix(0.9, 0.34, uNight), fog * 0.85);
+    b = fog;
+    if (ground || mi == 9) {
+      float spacing = mi == 9 ? 1.0 : 2.0;
+      vec2 g = p.xz / spacing;
+      vec2 w = gw / spacing;
+      vec2 f = abs(fract(g - 0.5) - 0.5) / max(w, vec2(1e-4));
+      line = 1.0 - clamp(min(f.x, f.y) - 0.5, 0.0, 1.0);
+      line *= 1.0 - smoothstep(0.2, 0.55, max(w.x, w.y));
+      line *= 1.0 - fog * 0.8;
+    }
+  }
+  o = vec4(clamp(lum, 0.0, 1.0), mat / 15.0, b, line);
+}`;
+
+// Pass 2: full-resolution halftone dots or ASCII glyphs.
+const FS_PRESENT = `#version 300 es
+precision highp float;
+precision highp int;
+uniform sampler2D uScene;
+uniform sampler2D uGlyph;
+uniform vec2 uRes;
+uniform vec2 uSceneRes;
+uniform vec2 uCell;
+uniform int uMode;
+uniform float uGlyphN;
+uniform float uFade;
+uniform vec3 uPal[16];
+uniform vec3 uInk;
+uniform vec3 uLine;
+uniform vec3 uSkyTop;
+uniform vec3 uSkyBot;
+uniform vec3 uSunA;
+uniform vec3 uSunB;
+out vec4 o;
+
+float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+void main() {
+  vec2 fc = gl_FragCoord.xy;
+  vec2 cell = floor(fc / uCell);
+  vec2 ctr = (cell + 0.5) * uCell;
+  ivec2 ti = ivec2(clamp(ctr / uRes, 0.0, 0.9999) * uSceneRes);
+  vec4 s = texelFetch(uScene, ti, 0);
+  float lum = s.r;
+  int mi = int(s.g * 15.0 + 0.5);
+  vec3 col;
+  if (mi == 15) col = mix(uSkyBot, uSkyTop, s.b);
+  else if (mi == 14) col = mix(uSunB, uSunA, s.b);
+  else col = mix(uPal[mi], uSkyBot, s.b * 0.8);
+  float line = texture(uScene, fc / uRes).a;
+  vec3 c;
+  if (uMode == 0) {
+    vec3 paper = mix(col, vec3(1.0), 0.3);
+    vec3 ink = mix(col, uInk, 0.6);
+    float r = 0.72 * sqrt(clamp(1.0 - lum, 0.0, 1.0));
+    float d = length((fc - ctr) / uCell.y);
+    float aa = 1.2 / uCell.y;
+    c = mix(paper, ink, 1.0 - smoothstep(r - aa, r + aa, d));
+    c = mix(c, uLine, clamp(line, 0.0, 1.0) * 0.9);
+  } else {
+    float l = mi == 15 ? lum * 0.38 : lum;
+    float gi = floor(clamp(l, 0.0, 1.0) * (uGlyphN - 1.0) + 0.5);
+    vec3 fg = mix(col, vec3(1.0), 0.18) * (0.6 + 0.6 * lum);
+    // grid lines become bright '+' glyphs; sample four points so a thin
+    // line crossing the cell anywhere is caught
+    float lc = 0.0;
+    for (int k = 0; k < 4; k++) {
+      vec2 off = vec2((k == 0 || k == 2) ? -0.3 : 0.3, k < 2 ? -0.3 : 0.3) * uCell;
+      lc = max(lc, texture(uScene, (ctr + off) / uRes).a);
+    }
+    if (lc > 0.5) { gi = 5.0; fg = uLine * (0.7 + 0.3 * lc); }
+    // silhouettes: a dense, dark-tinted mass so bodies read against the ground
+    if ((mi == 3 || mi == 4 || mi == 10 || mi == 11) && lum < 0.4) { gi = 8.0; fg = mix(col, uInk, 0.45); }
+    vec2 lp = (fc - cell * uCell) / uCell;
+    float g = texture(uGlyph, vec2((gi + lp.x) / uGlyphN, 1.0 - lp.y)).a;
+    c = mix(uInk, fg, g);
+  }
+  if (uFade > 0.001) c = mix(c, uInk, step(hash(cell), uFade));
+  vec2 q = fc / uRes;
+  c *= 0.84 + 0.16 * pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.3);
+  o = vec4(c, 1.0);
+}`;
+
+// =====================================================================
+//  Palettes & materials
+// =====================================================================
+const MAT = { SAND: 0, STONE: 1, ROCK: 2, PERSON: 3, YOU: 4, WATER: 5, WOOD: 6, CLOTH: 7, GLASS: 8, FLOOR: 9, SEL: 10, DOWN: 11, EXIT: 12, DARK: 13 };
+const PALETTES = {
+  neon: {
+    ink: '#120a35', line: '#efeaff', skyTop: '#8f7fe6', skyBot: '#cdc2f6', sunA: '#ff4fd8', sunB: '#8a1cff',
+    mats: ['#5a4ad6', '#7266e8', '#4636b8', '#8d84ff', '#ff5fc8', '#38c6ff', '#6a4ce0', '#a48cff', '#d6d0ff', '#2f68ff', '#ffd84a', '#2c2378', '#7dfcff', '#1a1250', '#ff4fd8', '#cdc2f6'],
+    moonA: '#e9e4ff', moonB: '#9c8cff',
+  },
+  desert: {
+    ink: '#1a1009', line: '#fff3dc', skyTop: '#d9a865', skyBot: '#f2dcb4', sunA: '#fff1c1', sunB: '#ff8a3c',
+    mats: ['#c9934f', '#a08a72', '#a4583a', '#e0b07a', '#ff6a3d', '#4fb6d8', '#8a5a34', '#d8c2a0', '#cfe3e8', '#b07a52', '#fff2a8', '#5a3a28', '#7dfcff', '#2a1a10', '#fff1c1', '#f2dcb4'],
+    moonA: '#fff7e6', moonB: '#c9b28a',
+  },
+};
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+
+// =====================================================================
+//  WebGL setup
+// =====================================================================
+const $ = (s) => document.querySelector(s);
+const canvas = $('#gl');
+const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false, desynchronized: true, powerPreference: 'high-performance' });
+if (!gl) { $('#boot').textContent = 'This viewer needs WebGL2.'; throw new Error('no webgl2'); }
+
+function compile(type, src) {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.bindAttribLocation(p, 0, 'aPos');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const locs = {};
+  p.u = (name) => (name in locs ? locs[name] : (locs[name] = gl.getUniformLocation(p, name)));
+  return p;
+}
+const progScene = program(FS_SCENE);
+const progPresent = program(FS_PRESENT);
+
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+const sceneTex = gl.createTexture();
+const fbo = gl.createFramebuffer();
+let sceneW = 0, sceneH = 0;
+function sizeScene(w, h) {
+  if (w === sceneW && h === sceneH) return;
+  sceneW = w; sceneH = h;
+  gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, sceneTex, 0);
+}
+
+const RAMP = ' .:-=+*#%@';
+const glyphTex = gl.createTexture();
+(function makeGlyphs() {
+  const cw = 40, ch = 64;
+  const c = document.createElement('canvas');
+  c.width = cw * RAMP.length; c.height = ch;
+  const x = c.getContext('2d');
+  x.fillStyle = '#fff';
+  x.font = `bold ${Math.round(ch * 0.8)}px Consolas, "Cascadia Mono", "Courier New", monospace`;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  [...RAMP].forEach((g, i) => x.fillText(g, i * cw + cw / 2, ch * 0.54));
+  gl.bindTexture(gl.TEXTURE_2D, glyphTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+})();
+
+// =====================================================================
+//  App state
+// =====================================================================
+const S = {
+  state: null, youId: null, placeId: null, sel: null,
+  names: new Map(), seen: new Set(), ents: new Map(), slots: new Map(),
+  staticPrims: [], anchors: {}, terr: [0.7, 9, 9, 0], road: [0, 1, 0, 1],
+  speech: new Map(), activity: new Map(), captions: [], faceAt: new Map(),
+  spot: null, youSpot: null, lastTalk: null,
+  mode: 0, pal: 'neon', fade: 1, fadeDir: -1, pendingPlace: null,
+  sun: [-0.55, 0.32, -0.77], night: 0, fogK: 0.012,
+  lat: { act: null, pushAt: 0, live: false },
+  form: null, rate: 4, q: 1.6,
+};
+const cam = { target: [0, 1.3, 0.4], yaw: 0.2, pitch: 0.2, dist: 12.5, fov: 0.95, spin: false, idleAt: 0 };
+let time = 0;
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const nm = (id) => (id == null ? 'the world' : S.names.get(id) || id);
+
+function hashStr(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+function rng(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// =====================================================================
+//  Place recipes: a small diorama per kind of place
+// =====================================================================
+function box(pos, s, m, rot = 0, r = 0.05) { return { t: 0, m, pos, s, r: Math.min(r, ...s), rot }; }
+function sphere(pos, r, m) { return { t: 1, m, pos, r, s: [0, 0, 0] }; }
+function cyl(pos, r, h, m) { return { t: 3, m, pos, r, h, s: [0, 0, 0] }; }
+function prism(pos, h, len, m, rot = 0) { return { t: 4, m, pos, s: [h, len, 0], rot, r: 0 }; }
+
+function pickRecipe(here) {
+  const tests = [
+    ['yard', /yard|drill|barrack/], ['hold', /\bhold\b|keep|hall|fort|tower|castle/],
+    ['road', /road|track|trail|path/], ['camp', /landing|carrier|caravan|market|camp|tent|convoy/],
+    ['ridge', /ridge|rock|crag|cliff|bluff|outcrop|mesa/], ['flats', /flat|glass|salt pan|mirror/],
+  ];
+  for (const text of [here.name || '', here.state?.description || '']) {
+    const s = text.toLowerCase();
+    for (const [k, re] of tests) if (re.test(s)) return k;
+  }
+  return 'dunes';
+}
+
+function buildRecipe(here) {
+  const R = rng(hashStr(here.id || here.name || 'x'));
+  const j = (v) => v + (R() - 0.5) * 0.3;
+  const P = [];
+  const anchors = {};
+  let terr = [0.8, 6, 8, MAT.SAND];
+  let road = [0, 1, 0, MAT.STONE];
+  const kind = pickRecipe(here);
+
+  if (kind === 'hold') {
+    terr = [0.7, 9, 9, MAT.SAND];
+    for (const sd of [-1, 1]) {
+      P.push(box([sd * 10.5, 3.2, -1], [3.2, 3.6, 9], MAT.ROCK, sd * 0.12, 0.6));
+      P.push(box([sd * 9.2, 6.6, -3.5], [2.2, 1.3, 4.6], MAT.ROCK, sd * 0.3, 0.5));
+      P.push(box([sd * 11.5, 2.2, 7], [2.4, 2.4, 3], MAT.ROCK, -sd * 0.25, 0.5));
+    }
+    P.push(box([0, 1.7, -5.2], [4.2, 1.7, 2.4], MAT.STONE, 0, 0.08));
+    for (let i = -4; i <= 4; i += 2) P.push(box([i * 0.95, 3.66, -2.96], [0.32, 0.28, 0.16], MAT.STONE, 0, 0.03));
+    P.push(cyl([3.7, 2.7, -5.8], 1.05, 2.7, MAT.STONE));
+    P.push(box([0, 0.95, -2.78], [0.62, 0.95, 0.06], MAT.DARK, 0, 0.02));
+    P.push(box([0, 0.02, 0.4], [5.6, 0.03, 4.4], MAT.FLOOR, 0, 0.01));
+    anchors.well = [3.6, 0, -1.1];
+  } else if (kind === 'yard') {
+    terr = [0.6, 10, 8, MAT.SAND];
+    P.push(box([0, 1.4, -7], [7.5, 1.4, 0.45], MAT.STONE, 0, 0.06));
+    for (const sd of [-1, 1]) {
+      P.push(box([sd * 7.5, 1.4, -1.5], [0.45, 1.4, 5.5], MAT.STONE, 0, 0.06));
+      P.push(box([sd * 5.1, 1.4, 4], [2.9, 1.4, 0.45], MAT.STONE, 0, 0.06));
+      P.push(box([sd * 1.9, 2.0, 4], [0.5, 2.0, 0.5], MAT.STONE, 0, 0.06));
+    }
+    P.push(box([0, 3.75, 4], [2.4, 0.3, 0.5], MAT.STONE, 0, 0.05));
+    P.push(cyl([-3.6, 0.95, -3.6], 0.12, 0.95, MAT.WOOD));
+    P.push(box([-3.6, 1.45, -3.6], [0.6, 0.07, 0.07], MAT.WOOD, 0.3, 0.02));
+    P.push(box([4.6, 0.4, -4.9], [0.45, 0.4, 0.45], MAT.WOOD, 0.2, 0.04));
+    P.push(box([5.5, 0.4, -4.4], [0.45, 0.4, 0.45], MAT.WOOD, -0.3, 0.04));
+    P.push(box([4.9, 1.2, -4.7], [0.4, 0.4, 0.4], MAT.WOOD, 0.6, 0.04));
+    P.push(box([0, 0.02, -1.5], [7, 0.03, 5.4], MAT.FLOOR, 0, 0.01));
+    anchors.well = [-3.4, 0, 0.8];
+  } else if (kind === 'road') {
+    terr = [1.1, 6, 7, MAT.SAND];
+    const a = 0.25;
+    road = [1.7, Math.sin(a), Math.cos(a), MAT.STONE];
+    for (let i = -3; i <= 3; i++) {
+      if (i === 0) continue;
+      const z = i * 5.5, x = z * Math.tan(a) + (i % 2 ? 2.6 : -2.6);
+      P.push(sphere([x, 0.25, z], j(0.45), MAT.STONE));
+    }
+    P.push(box([2.6, 0.6, -2.6], [0.2, 0.6, 0.14], MAT.STONE, a, 0.04));
+    anchors.well = [-3.2, 0, -2];
+  } else if (kind === 'camp') {
+    terr = [0.7, 8, 7, MAT.SAND];
+    P.push(prism([-3.6, 0.9, -3.6], 1.8, 1.6, MAT.CLOTH, 0.4));
+    P.push(prism([3.9, 0.75, -4.3], 1.5, 1.3, MAT.CLOTH, -0.5));
+    P.push(prism([-5.6, 0.7, 1.6], 1.4, 1.2, MAT.CLOTH, 1.2));
+    P.push(box([2.9, 0.35, -1.6], [0.35, 0.35, 0.35], MAT.WOOD, 0.3, 0.03));
+    P.push(box([3.5, 0.3, -2.3], [0.3, 0.3, 0.3], MAT.WOOD, -0.2, 0.03));
+    P.push(box([3.1, 0.95, -1.8], [0.28, 0.28, 0.28], MAT.WOOD, 0.8, 0.03));
+    P.push(cyl([4.6, 0.45, -0.5], 0.32, 0.45, MAT.WOOD));
+    P.push(cyl([4.3, 0.45, 0.3], 0.32, 0.45, MAT.WOOD));
+    P.push(cyl([0.5, 2.2, -5.6], 0.07, 2.2, MAT.WOOD));
+    P.push(box([1.05, 4.0, -5.6], [0.55, 0.3, 0.02], MAT.CLOTH, 0, 0.01));
+    anchors.well = [-3.4, 0, -0.6];
+  } else if (kind === 'ridge') {
+    terr = [0.9, 7, 10, MAT.SAND];
+    P.push(box([0, 1.8, -8], [11, 2.2, 2.2], MAT.ROCK, 0.08, 0.8));
+    P.push(box([-6, 3.4, -9], [4, 1.6, 1.8], MAT.ROCK, 0.2, 0.6));
+    P.push(box([5, 3.8, -8.5], [3, 1.4, 1.6], MAT.ROCK, -0.15, 0.6));
+    for (let i = 0; i < 6; i++) {
+      const th = -Math.PI / 2 + (R() - 0.5) * 3.4, r = 5 + R() * 3;
+      const sz = 0.5 + R() * 0.9;
+      P.push(box([Math.cos(th) * r, sz * 0.8, Math.sin(th) * r], [sz, sz * 0.9, sz * 0.8], MAT.ROCK, R() * 3, sz * 0.4));
+    }
+    P.push(cyl([1.3, 0.12, -1.3], 0.5, 0.12, MAT.STONE));
+    P.push(sphere([1.3, 0.34, -1.3], 0.22, MAT.EXIT));
+    anchors.well = [-2.8, 0, -2.4];
+  } else if (kind === 'flats') {
+    terr = [0.08, 2, 6, MAT.GLASS];
+    for (let i = 0; i < 8; i++) {
+      const th = R() * Math.PI * 2, r = 4 + R() * 6;
+      P.push(box([Math.cos(th) * r, 0.3, Math.sin(th) * r], [0.06, 0.25 + R() * 0.5, 0.2 + R() * 0.4], MAT.GLASS, R() * 3, 0.02));
+    }
+    anchors.well = [-3, 0, -2];
+  } else {
+    terr = [1.1, 5, 8, MAT.SAND];
+    for (let i = 0; i < 3; i++) {
+      const th = R() * Math.PI * 2, r = 5 + R() * 4, sz = 0.5 + R();
+      P.push(box([Math.cos(th) * r, sz * 0.7, Math.sin(th) * r], [sz, sz * 0.8, sz * 0.9], MAT.ROCK, R() * 3, sz * 0.4));
+    }
+    anchors.well = [-3, 0, -2];
+  }
+  return { prims: P, anchors, terr, road, kind };
+}
+
+// =====================================================================
+//  Entities: people, things, exits laid out around the diorama
+// =====================================================================
+function isPerson(e) {
+  const s = e.state || {};
+  return 'hp' in s || 'max_hp' in s || ['person', 'fighter', 'carrier'].includes(e.type);
+}
+// Silhouette style from what the world says about someone (never from hidden state).
+function bodyStyle(e) {
+  const s = e.state || {};
+  const text = [e.name, s.template, s.role, s.faction, s.description].filter(Boolean).join(' ').toLowerCase();
+  if (/keth|scout|nomad|hood/.test(text)) return 2;
+  if (/reeve|lord|lady|noble|dreyer|clerk|priest|scribe|agent/.test(text)) return 4;
+  if (/carrier|guild|porter|trader|merchant/.test(text)) return 3;
+  if (/guard|captain|soldier|sergeant|warden/.test(text)) return 1;
+  return 0;
+}
+function thingKind(e) {
+  const s = e.state || {};
+  if (s.water_source) return 'well';
+  if (e.type === 'letter' || typeof s.text === 'string') return 'letter';
+  if (s.weapon) return 'blade';
+  if (e.type === 'waterskin' || 'capacity' in s) return 'skin';
+  if (s.ward) return 'ward';
+  if (s.portable === false) return 'block';
+  return 'item';
+}
+function slotMem(placeId) {
+  if (!S.slots.has(placeId)) S.slots.set(placeId, { next: 1, map: new Map() });
+  return S.slots.get(placeId);
+}
+function slotFor(mem, id) {
+  if (!mem.map.has(id)) mem.map.set(id, mem.next++);
+  return mem.map.get(id);
+}
+function upsertEnt(id, props, target, fresh) {
+  let e = S.ents.get(id);
+  if (!e) {
+    e = { id, phase: (hashStr(id) % 628) / 100, pos: fresh ? target.slice() : [target[0] * 2.4, 0, target[2] * 2.4] };
+    S.ents.set(id, e);
+  }
+  Object.assign(e, props);
+  e.target = target;
+  return e;
+}
+
+function layoutEntities(st, fresh) {
+  const keep = new Set();
+  const mem = slotMem(st.here.id);
+  const present = (st.present || []).filter((e) => !(e.state && e.state.hidden));
+  const people = [st.you, ...present.filter(isPerson)];
+  const things = present.filter((e) => !isPerson(e));
+
+  for (const e of people) {
+    const you = e.id === st.you.id;
+    const k = you ? 0 : slotFor(mem, e.id);
+    const outer = k > 6;
+    const kk = outer ? k - 6 : k;
+    const th = Math.PI / 2 + (kk === 0 ? 0 : (kk % 2 ? 1 : -1) * Math.ceil(kk / 2) * 0.95) + (outer ? 0.45 : 0);
+    const ring = outer ? 4.3 : 2.7;
+    const s = e.state || {};
+    let target = [Math.cos(th) * ring, 0, Math.sin(th) * ring + 0.4];
+    if (you && S.youSpot && S.youSpot.placeId === st.here.id) target = [S.youSpot.x, 0, S.youSpot.z];
+    const style = bodyStyle(e);
+    upsertEnt(e.id, {
+      kind: 'person', name: e.name, you, data: e, sel: S.sel === e.id,
+      down: !!(s.down || s.dead || s.asleep), dead: !!s.dead, style,
+      // only draw a blade we can see: yours if you hold one, a guard's by trade
+      armed: you ? (st.holding || []).some((h) => h.state?.weapon) : style === 1,
+      scale: 0.95 + (hashStr(e.id) % 9) / 100,
+    }, target, fresh);
+    keep.add(e.id);
+  }
+
+  const loose = [];
+  for (const e of things) {
+    const tk = thingKind(e);
+    if (tk === 'well' && S.anchors.well) upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e }, S.anchors.well.slice(), true);
+    else loose.push([e, tk]);
+    keep.add(e.id);
+  }
+  loose.forEach(([e, tk], i) => {
+    const n = loose.length;
+    const th = -Math.PI / 2 + (i - (n - 1) / 2) * 0.85;
+    const r = n === 1 ? 0 : 1.1;
+    upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e }, [Math.cos(th) * r, 0, Math.sin(th) * r + 0.4], fresh);
+  });
+
+  (st.exits || []).forEach((x, k) => {
+    const side = k % 2 ? -1 : 1;
+    const th = Math.PI / 2 + side * (1.25 + Math.floor(k / 2) * 0.5);
+    const id = 'exit:' + x.to;
+    upsertEnt(id, { kind: 'exit', name: x.name, placeId: x.to, idx: k + 1 }, [Math.cos(th) * 6.6, 0, Math.sin(th) * 6.6 + 0.4], true);
+    keep.add(id);
+  });
+
+  for (const id of [...S.ents.keys()]) if (!keep.has(id)) { S.ents.delete(id); removeTag(id); }
+}
+
+function buildPlace(st) {
+  S.spot = null;
+  S.youSpot = null;
+  const r = buildRecipe(st.here);
+  S.staticPrims = r.prims; S.anchors = r.anchors; S.terr = r.terr; S.road = r.road;
+  for (const id of [...S.ents.keys()]) removeTag(id);
+  S.ents.clear();
+  layoutEntities(st, true);
+  Story.arrive(st);
+}
+
+// =====================================================================
+//  Primitive upload
+// =====================================================================
+const UA = new Float32Array(MAXP * 4), UB = new Float32Array(MAXP * 4), UC = new Float32Array(MAXP * 4);
+let primN = 0;
+const bound = [0, 0, 0, 1];
+let bmin, bmax;
+
+function prim(p) {
+  if (primN >= MAXP) return;
+  const i = primN++ * 4;
+  const rot = p.rot || 0;
+  UA[i] = p.t; UA[i + 1] = p.m; UA[i + 2] = Math.cos(rot); UA[i + 3] = Math.sin(rot);
+  UB[i] = p.pos[0]; UB[i + 1] = p.pos[1]; UB[i + 2] = p.pos[2]; UB[i + 3] = p.r || 0;
+  const s = p.s || [0, 0, 0];
+  const c = p.c || [p.lying ? 1 : s[0], s[1], s[2], p.h || 0];
+  UC[i] = c[0]; UC[i + 1] = c[1]; UC[i + 2] = c[2]; UC[i + 3] = c[3];
+  const ext = p.t === 5 ? 2.1 * (p.r || 1)
+    : (p.t === 0 ? Math.hypot(s[0], s[1], s[2]) : p.t === 4 ? Math.hypot(s[0], s[1]) : 0) + (p.r || 0) + (p.h || 0);
+  for (let k = 0; k < 3; k++) {
+    bmin[k] = Math.min(bmin[k], p.pos[k] - ext);
+    bmax[k] = Math.max(bmax[k], p.pos[k] + ext);
+  }
+}
+
+function entityPrims(e) {
+  const [x, , z] = e.pos;
+  if (e.kind === 'person') {
+    const m = e.sel ? MAT.SEL : e.you ? MAT.YOU : e.down ? MAT.DOWN : MAT.PERSON;
+    const flags = (e.down ? 1 : 0) + (e.armed && !e.down ? 2 : 0);
+    prim({
+      t: 5, m, pos: [x, 0, z], r: e.scale || 1, rot: e.down ? e.phase : e.yaw || 0,
+      c: [e.down ? 0 : e.walk || 0, e.style || 0, e.stride || 0, flags],
+    });
+  } else if (e.kind === 'exit') {
+    const m = S.sel === e.placeId ? MAT.GLASS : MAT.EXIT;
+    prim({ t: 0, m, pos: [x, 1.3, z], s: [0.16, 1.3, 0.16], r: 0.05, rot: time * 0.6 + e.phase });
+    prim({ t: 3, m: MAT.STONE, pos: [x, 0.08, z], r: 0.5, h: 0.08 });
+  } else {
+    const sel = S.sel === e.id;
+    const pick = (m) => (sel ? MAT.EXIT : m);
+    const rot = e.phase;
+    switch (e.tk) {
+      case 'well':
+        prim({ t: 3, m: pick(MAT.STONE), pos: [x, 0.31, z], r: 1.05, h: 0.31 });
+        prim({ t: 3, m: MAT.WATER, pos: [x, 0.33, z], r: 0.88, h: 0.33 });
+        break;
+      case 'letter':
+        prim(box([x, 0.45, z], [0.3, 0.45, 0.22], MAT.STONE, rot, 0.03));
+        prim(box([x, 0.92, z], [0.24, 0.015, 0.17], pick(MAT.GLASS), rot + 0.2, 0.005));
+        break;
+      case 'blade': prim(box([x, 0.05, z], [0.55, 0.03, 0.05], pick(MAT.GLASS), rot, 0.01)); break;
+      case 'skin': prim(sphere([x, 0.2, z], 0.2, pick(MAT.CLOTH))); break;
+      case 'ward': prim(box([x, 0.08, z], [0.16, 0.08, 0.12], pick(MAT.EXIT), rot, 0.02)); break;
+      case 'block': prim(box([x, 0.5, z], [0.5, 0.5, 0.5], pick(MAT.STONE), rot, 0.06)); break;
+      default: prim(box([x, 0.22, z], [0.22, 0.22, 0.22], pick(MAT.WOOD), rot, 0.03));
+    }
+  }
+}
+
+// People walk at a steady pace with a stride, face where they are going,
+// then face whoever they are talking to (or the middle of the ring).
+function moveEnts(dt, now) {
+  const k = 1 - Math.exp(-dt * 3.2);
+  for (const e of S.ents.values()) {
+    if (e.kind !== 'person' || e.down) {
+      for (let i = 0; i < 3; i++) e.pos[i] += (e.target[i] - e.pos[i]) * k;
+      e.walk = 0;
+      continue;
+    }
+    const dx = e.target[0] - e.pos[0], dz = e.target[2] - e.pos[2];
+    const dist = Math.hypot(dx, dz);
+    const step = Math.min(dist, 1.8 * dt);
+    if (dist > 1e-4) { e.pos[0] += (dx / dist) * step; e.pos[2] += (dz / dist) * step; }
+    const moving = dist > 0.03;
+    e.walk = (e.walk || 0) + ((moving ? 1 : 0) - (e.walk || 0)) * Math.min(1, dt * 6);
+    e.stride = ((e.stride || 0) + step * 5.4) % 6283.18;
+    let fx = -e.pos[0], fz = 0.4 - e.pos[2];
+    const fa = S.faceAt.get(e.id);
+    if (moving) { fx = dx; fz = dz; }
+    else if (fa && fa.until > now) {
+      const o = fa.id ? S.ents.get(fa.id) : null;
+      const pt = o ? [o.pos[0], o.pos[2]] : fa.pt;
+      if (pt) { fx = pt[0] - e.pos[0]; fz = pt[1] - e.pos[2]; }
+    }
+    if (Math.hypot(fx, fz) > 0.01) {
+      const want = Math.atan2(-fx, fz);
+      if (e.yaw == null) e.yaw = want;
+      e.yaw += Math.atan2(Math.sin(want - e.yaw), Math.cos(want - e.yaw)) * Math.min(1, dt * 6);
+    }
+  }
+}
+
+function buildPrims() {
+  primN = 0;
+  if (S.spot && S.spot.placeId === S.placeId) prim({ t: 3, m: MAT.EXIT, pos: [S.spot.x, 0.02, S.spot.z], r: 0.35, h: 0.02 });
+  bmin = [Infinity, Infinity, Infinity];
+  bmax = [-Infinity, -Infinity, -Infinity];
+  for (const e of S.ents.values()) entityPrims(e);
+  for (const p of S.staticPrims) prim(p);
+  if (primN === 0) { bound[0] = bound[1] = bound[2] = 0; bound[3] = 0.001; return; }
+  for (let k = 0; k < 3; k++) bound[k] = (bmin[k] + bmax[k]) / 2;
+  bound[3] = Math.hypot(bmax[0] - bmin[0], bmax[1] - bmin[1], bmax[2] - bmin[2]) / 2 + 0.1;
+}
+
+// =====================================================================
+//  Camera
+// =====================================================================
+const V = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+  cross: (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]],
+  norm: (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; },
+};
+let C = null;
+function computeCamera() {
+  const sway = cam.spin ? 0 : 0.3 * Math.sin(time * 0.09);
+  const yaw = cam.yaw + sway;
+  const cp = Math.cos(cam.pitch);
+  const pos = [
+    cam.target[0] + cam.dist * cp * Math.sin(yaw),
+    cam.target[1] + cam.dist * Math.sin(cam.pitch),
+    cam.target[2] + cam.dist * cp * Math.cos(yaw),
+  ];
+  const F = V.norm(V.sub(cam.target, pos));
+  const R = V.norm(V.cross(F, [0, 1, 0]));
+  const U = V.cross(R, F);
+  C = { pos, F, R, U, tan: Math.tan(cam.fov / 2) };
+}
+function project(p, w, h) {
+  const rel = V.sub(p, C.pos);
+  const z = V.dot(rel, C.F);
+  if (z < 0.2) return null;
+  const asp = w / h;
+  const x = V.dot(rel, C.R) / (z * C.tan * asp);
+  const y = V.dot(rel, C.U) / (z * C.tan);
+  return [(x + 1) / 2 * w, (1 - y) / 2 * h, z];
+}
+
+// =====================================================================
+//  Ambient: sun, night, fog from the world's own words
+// =====================================================================
+function setAmbient(amb) {
+  const tod = (amb?.time_of_day || '').toLowerCase();
+  const weather = (amb?.weather || '').toLowerCase();
+  let elev = 0.32, az = [-0.6, -0.8], night = 0;
+  // The sun is kept in front of the default view so it sits on the ridge line.
+  if (/dawn|sunrise/.test(tod)) { elev = 0.13; az = [-0.55, -0.83]; night = 0.2; }
+  else if (/morning/.test(tod)) { elev = 0.2; az = [-0.35, -0.94]; }
+  else if (/noon|midday/.test(tod)) { elev = 0.9; az = [0, -1]; }
+  else if (/afternoon/.test(tod)) { elev = 0.3; az = [0.3, -0.95]; }
+  else if (/evening|dusk|sunset|twilight/.test(tod)) { elev = 0.13; az = [0.45, -0.89]; night = 0.35; }
+  else if (/night|midnight|dark/.test(tod)) { elev = 0.24; az = [-0.15, -0.99]; night = 1; }
+  const ce = Math.cos(elev);
+  S.sun = V.norm([az[0] * ce, Math.sin(elev), az[1] * ce]);
+  S.night = night;
+  S.fogK = /dust|storm|haze|sand|wind|smoke/.test(weather) ? 0.045 : 0.012;
+}
+
+// =====================================================================
+//  Render loop
+// =====================================================================
+let W = 0, H = 0, dpr = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.floor(innerWidth * dpr), h = Math.floor(innerHeight * dpr);
+  if (w !== canvas.width || h !== canvas.height) { canvas.width = w; canvas.height = h; }
+  W = innerWidth; H = innerHeight;
+}
+addEventListener('resize', resize);
+resize();
+
+// GPU timing: adapt resolution to real GPU cost, not to rAF cadence
+// (a throttled or 30 Hz display would otherwise look like a slow GPU).
+const tq = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+const inflight = [];
+let gpuMs = null, qualityAt = 0;
+function gpuBegin() {
+  if (!tq || inflight.length > 2) return null;
+  const q = gl.createQuery();
+  gl.beginQuery(tq.TIME_ELAPSED_EXT, q);
+  return q;
+}
+function gpuEnd(q) { if (q) { gl.endQuery(tq.TIME_ELAPSED_EXT); inflight.push(q); } }
+function gpuPoll() {
+  while (inflight.length && gl.getQueryParameter(inflight[0], gl.QUERY_RESULT_AVAILABLE)) {
+    const q = inflight.shift();
+    if (!gl.getParameter(tq.GPU_DISJOINT_EXT)) {
+      const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6;
+      gpuMs = gpuMs == null ? ms : gpuMs * 0.85 + ms * 0.15;
+    }
+    gl.deleteQuery(q);
+  }
+}
+
+let last = performance.now(), perfAcc = 0, perfN = 0, perfAt = 0, vsync = 1;
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  time += dt;
+  resize();
+
+  // place transition: dissolve out, rebuild, dissolve in
+  if (S.fadeDir > 0) {
+    S.fade = Math.min(1, S.fade + dt / 0.16);
+    if (S.fade >= 1) {
+      if (S.pendingPlace) { const st = S.pendingPlace; S.pendingPlace = null; S.placeId = st.here.id; buildPlace(st); }
+      S.fadeDir = -1;
+    }
+  } else if (S.fadeDir < 0) {
+    S.fade = Math.max(0, S.fade - dt / 0.32);
+    if (S.fade <= 0) S.fadeDir = 0;
+  }
+
+  if (cam.spin) cam.yaw += dt * 0.12;
+  computeCamera();
+
+  moveEnts(dt, now);
+  buildPrims();
+
+  const pal = PALETTES[S.pal];
+  const cellCss = S.mode === 0 ? [5, 5] : [7.2, 12];
+  const cell = [cellCss[0] * dpr, cellCss[1] * dpr];
+  sizeScene(Math.max(8, Math.ceil(canvas.width / cell[1] * S.q)), Math.max(8, Math.ceil(canvas.height / cell[1] * S.q)));
+
+  // pass 1
+  const gq = gpuBegin();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.viewport(0, 0, sceneW, sceneH);
+  gl.useProgram(progScene);
+  const u1 = progScene.u;
+  gl.uniform2f(u1('uRes'), sceneW, sceneH);
+  gl.uniform3fv(u1('uCamPos'), C.pos);
+  gl.uniform3fv(u1('uCamR'), C.R);
+  gl.uniform3fv(u1('uCamU'), C.U);
+  gl.uniform3fv(u1('uCamF'), C.F);
+  gl.uniform1f(u1('uTan'), C.tan);
+  gl.uniform1f(u1('uTime'), time);
+  gl.uniform3fv(u1('uSun'), S.sun);
+  gl.uniform1f(u1('uNight'), S.night);
+  gl.uniform1f(u1('uFogK'), S.fogK);
+  gl.uniform4fv(u1('uTerr'), S.terr);
+  gl.uniform4fv(u1('uRoad'), S.road);
+  gl.uniform4fv(u1('uBound'), bound);
+  gl.uniform1i(u1('uCount'), primN);
+  gl.uniform4fv(u1('uA'), UA);
+  gl.uniform4fv(u1('uB'), UB);
+  gl.uniform4fv(u1('uC'), UC);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // pass 2
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(progPresent);
+  const u2 = progPresent.u;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, glyphTex);
+  gl.uniform1i(u2('uScene'), 0);
+  gl.uniform1i(u2('uGlyph'), 1);
+  gl.uniform2f(u2('uRes'), canvas.width, canvas.height);
+  gl.uniform2f(u2('uSceneRes'), sceneW, sceneH);
+  gl.uniform2f(u2('uCell'), cell[0], cell[1]);
+  gl.uniform1i(u2('uMode'), S.mode);
+  gl.uniform1f(u2('uGlyphN'), RAMP.length);
+  gl.uniform1f(u2('uFade'), S.fade);
+  gl.uniform3fv(u2('uPal'), palFlat(pal));
+  gl.uniform3fv(u2('uInk'), hex(pal.ink));
+  gl.uniform3fv(u2('uLine'), hex(pal.line));
+  gl.uniform3fv(u2('uSkyTop'), hex(S.night > 0.5 ? pal.ink : pal.skyTop));
+  gl.uniform3fv(u2('uSkyBot'), hex(pal.skyBot));
+  gl.uniform3fv(u2('uSunA'), hex(S.night > 0.5 ? pal.moonA : pal.sunA));
+  gl.uniform3fv(u2('uSunB'), hex(S.night > 0.5 ? pal.moonB : pal.sunB));
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gpuEnd(gq);
+
+  updateTags();
+
+  // adaptive quality: keep GPU time well inside a frame
+  if (tq) {
+    gpuPoll();
+    if (gpuMs != null && now - qualityAt > 700) {
+      if (gpuMs > 9 && S.q > 0.7) S.q = Math.max(0.7, S.q * 0.88);
+      else if (gpuMs < 4.5 && S.q < 2) S.q = Math.min(2, S.q * 1.06);
+      qualityAt = now;
+    }
+  } else {
+    // no timer: compare against the display's own cadence
+    perfAcc += dt; perfN++;
+    if (now - perfAt > 1500 && perfN > 20) {
+      const avg = perfAcc / perfN;
+      vsync = Math.min(vsync, avg);
+      if (avg > vsync * 1.3 && S.q > 0.7) S.q = Math.max(0.7, S.q * 0.85);
+      else if (avg < vsync * 1.08 && S.q < 1.8) S.q = Math.min(1.8, S.q * 1.05);
+      perfAcc = 0; perfN = 0; perfAt = now;
+      vsync *= 1.02;
+    }
+  }
+}
+const palCache = new Map();
+function palFlat(pal) {
+  if (!palCache.has(pal)) palCache.set(pal, new Float32Array(pal.mats.flatMap(hex)));
+  return palCache.get(pal);
+}
+
+// =====================================================================
+//  Tags: names, speech and activity floating over the scene
+// =====================================================================
+const tagsEl = $('#tags');
+const tagEls = new Map();
+function removeTag(id) { const el = tagEls.get(id); if (el) { el.remove(); tagEls.delete(id); } }
+const spotEl = document.createElement('div');
+spotEl.className = 'tag exit';
+spotEl.innerHTML = '<div class="chip pill"><i></i>here</div>';
+spotEl.style.display = 'none';
+tagsEl.appendChild(spotEl);
+
+function tagKey(e) {
+  const now = performance.now();
+  const sp = S.speech.get(e.id); const ac = S.activity.get(e.id);
+  const speech = sp && sp.until > now ? sp.text : '';
+  const act = ac && ac.until > now ? ac.text : '';
+  let st = '';
+  if (e.kind === 'person') {
+    const s = e.data?.state || {};
+    st = e.you ? 'you' : s.dead ? 'dead' : s.down ? 'down' : s.asleep ? 'asleep' : s.wounded ? 'wounded' : '';
+  }
+  const sel = e.kind === 'exit' ? S.sel === e.placeId : S.sel === e.id;
+  return { key: [e.name, st, speech, act, sel, e.idx].join('|'), speech, act, st, sel };
+}
+
+function updateTags() {
+  const items = [];
+  for (const e of S.ents.values()) {
+    let el = tagEls.get(e.id);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'tag';
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); selectEnt(e.id, true); });
+      tagsEl.appendChild(el);
+      tagEls.set(e.id, el);
+    }
+    const k = tagKey(e);
+    if (el._key !== k.key) {
+      el._key = k.key;
+      el.className = `tag ${e.kind}${e.you ? ' you' : ''}${e.down ? ' down' : ''}${k.sel ? ' sel' : ''}`;
+      const label = e.kind === 'exit' ? `<kbd>${e.idx}</kbd>→ ${esc(e.name)}` : `${esc(e.name)}${k.st ? ` <span class="st">${esc(k.st)}</span>` : ''}`;
+      el.innerHTML =
+        (k.speech ? `<div class="bubble pill">“${esc(k.speech)}”</div>` : '') +
+        `<div class="chip pill"><i></i>${label}</div>` +
+        (k.act ? `<div class="act">› ${esc(k.act)}</div>` : '');
+      el._measure = true;
+    }
+    const y = e.kind === 'person' ? (e.down ? 0.95 : 2.2) : e.kind === 'exit' ? 2.95 : 1.05;
+    const p = project([e.pos[0], y, e.pos[2]], W, H);
+    if (!p || p[0] < -200 || p[0] > W + 200 || p[1] < -100 || p[1] > H + 100) { el.style.display = 'none'; continue; }
+    if (el.style.display === 'none') { el.style.display = ''; el._measure = true; }
+    if (el._measure) { el._w = el.offsetWidth; el._h = el.offsetHeight; el._measure = false; }
+    items.push({ el, x: p[0], y: p[1], z: p[2], w: el._w, h: el._h, near: e.you });
+  }
+  // nearest tags keep their spot; the rest step upward until they stop overlapping
+  items.sort((a, b) => (b.near - a.near) || a.z - b.z);
+  const placed = [];
+  for (const it of items) {
+    let y = it.y;
+    for (let n = 0; n < 10; n++) {
+      const hit = placed.find((r) => Math.abs(r.x - it.x) < (r.w + it.w) / 2 + 4 && y > r.top - 3 && y - it.h < r.bottom + 3);
+      if (!hit) break;
+      y = hit.top - 4;
+    }
+    placed.push({ x: it.x, w: it.w, top: y - it.h, bottom: y });
+    it.el.style.transform = `translate(${it.x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%)`;
+    it.el.style.zIndex = String(1000 - Math.round(it.z * 10));
+  }
+  const sp = S.spot && S.spot.placeId === S.placeId ? project([S.spot.x, 0.25, S.spot.z], W, H) : null;
+  spotEl.style.display = sp ? '' : 'none';
+  if (sp) spotEl.style.transform = `translate(${sp[0].toFixed(1)}px, ${sp[1].toFixed(1)}px) translate(-50%, -100%)`;
+}
+
+// =====================================================================
+//  Picking & selection
+// =====================================================================
+function rayDir(cx, cy) {
+  const u = (cx / W) * 2 - 1, v = 1 - (cy / H) * 2;
+  const asp = W / H;
+  return V.norm([0, 1, 2].map((i) => C.F[i] + u * C.R[i] * C.tan * asp + v * C.U[i] * C.tan));
+}
+function groundAt(cx, cy) {
+  const d = rayDir(cx, cy);
+  if (d[1] >= -0.01) return null;
+  const t = -C.pos[1] / d[1];
+  const x = C.pos[0] + d[0] * t, z = C.pos[2] + d[2] * t;
+  return Math.hypot(x, z - 0.4) < 14 ? [x, z] : null;
+}
+function pickAt(cx, cy) {
+  const d = rayDir(cx, cy);
+  let best = null, bt = Infinity;
+  for (const e of S.ents.values()) {
+    const c = e.kind === 'person' ? [e.pos[0], e.down ? 0.3 : 1.0, e.pos[2]] : e.kind === 'exit' ? [e.pos[0], 1.3, e.pos[2]] : [e.pos[0], 0.4, e.pos[2]];
+    const r = e.kind === 'person' ? 0.8 : e.kind === 'exit' ? 0.8 : e.tk === 'well' ? 1.1 : 0.55;
+    const oc = V.sub(C.pos, c);
+    const b = V.dot(oc, d), cc = V.dot(oc, oc) - r * r, disc = b * b - cc;
+    if (disc < 0) continue;
+    const t = -b - Math.sqrt(disc);
+    if (t > 0 && t < bt) { bt = t; best = e; }
+  }
+  return best;
+}
+
+function selectEnt(id, openTray) {
+  const e = S.ents.get(id);
+  const target = !e ? id : e.kind === 'exit' ? e.placeId : e.you ? null : e.id;
+  S.sel = target;
+  S.form = null;
+  for (const x of S.ents.values()) x.sel = x.kind === 'person' && x.id === target;
+  if (openTray) setTray(true);
+  renderTray();
+  renderSayTo();
+}
+
+let drag = null;
+canvas.addEventListener('pointerdown', (ev) => {
+  drag = { x: ev.clientX, y: ev.clientY, moved: false };
+  canvas.setPointerCapture(ev.pointerId);
+});
+canvas.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; canvas.classList.add('dragging'); }
+  if (drag.moved) {
+    cam.yaw -= dx * 0.006;
+    cam.pitch = Math.max(0.06, Math.min(1.25, cam.pitch + dy * 0.004));
+    drag.x = ev.clientX; drag.y = ev.clientY;
+  }
+});
+canvas.addEventListener('pointerup', (ev) => {
+  canvas.classList.remove('dragging');
+  if (drag && !drag.moved) {
+    const e = pickAt(ev.clientX, ev.clientY);
+    if (e) { selectEnt(e.id, true); S.spot = null; }
+    else {
+      // clicking the ground marks "here" for typed commands
+      S.sel = null;
+      for (const x of S.ents.values()) x.sel = false;
+      const g = groundAt(ev.clientX, ev.clientY);
+      S.spot = g ? { x: g[0], z: g[1], placeId: S.placeId } : null;
+      renderTray();
+      renderSayTo();
+    }
+  }
+  drag = null;
+});
+canvas.addEventListener('wheel', (ev) => {
+  ev.preventDefault();
+  cam.dist = Math.max(5, Math.min(32, cam.dist * Math.pow(1.0015, ev.deltaY)));
+}, { passive: false });
+
+// =====================================================================
+//  Events → log, captions, speech
+// =====================================================================
+function learnNames(st) {
+  const put = (id, name) => { if (id && name) S.names.set(id, name); };
+  put(st.you?.id, st.you?.name);
+  put(st.here?.id, st.here?.name);
+  for (const b of st.here?.breadcrumb || []) put(b.id, b.name);
+  for (const e of st.present || []) put(e.id, e.name);
+  for (const e of st.holding || []) put(e.id, e.name);
+  for (const x of st.exits || []) put(x.to, x.name);
+  for (const k of st.knows || []) put(k.who, k.name);
+  for (const r of st.relations || []) put(r.with, r.name);
+  for (const p of st.known_places || []) put(p.id, p.name);
+  for (const a of st.affordances || []) put(a.target, a.target_name);
+}
+
+function summarize(p) {
+  const bits = Object.entries(p || {})
+    .filter(([k, v]) => v != null && typeof v !== 'object' && !['params'].includes(k))
+    .slice(0, 4)
+    .map(([k, v]) => `${k} ${typeof v === 'string' && S.names.has(v) ? nm(v) : v}`);
+  return bits.length ? ` (${bits.join(', ')})` : '';
+}
+
+function fmtEvent(e) {
+  const p = e.payload || {};
+  const A = nm(e.actor), T = nm(e.target);
+  switch (e.kind) {
+    case 'say': return { line: `${A}${p.to ? ' → ' + nm(p.to) : ''}: “${p.text}”`, cls: 'say', speech: p.text, caption: `${A}: “${p.text}”` };
+    case 'talked': return { line: `${A} talks with ${T}${p.text ? ': ' + p.text : ''}`, cls: 'say', speech: p.text, caption: `${A} talks with ${T}` };
+    case 'act': return { line: `${A} · ${p.verb}${e.target ? ' ' + T : ''}`, cls: 'act', activity: `${p.verb}${e.target ? ' ' + T : ''}`, minor: true };
+    case 'arrived': return { line: `${nm(p.who || e.actor)} arrives at ${nm(p.place || e.target)}`, cls: 'move', caption: `${nm(p.who || e.actor)} arrives` };
+    case 'left': return { line: `${nm(p.entity)} leaves ${T}`, cls: 'minor', minor: true };
+    case 'moved': return { line: `${T} → ${nm(p.to)}`, cls: 'minor', minor: true };
+    case 'drank': return { line: `${A} drinks from ${T}${p.water != null ? ` (water ${p.water})` : ''}`, cls: 'water', caption: `${A} drinks from ${T}` };
+    case 'read': return { line: `${A} reads ${T}`, cls: 'act', detail: p.text, caption: `${A} reads ${T}` };
+    case 'searched': return { line: `${A} searches ${T}${p.found?.length ? ' and finds ' + p.found.map(nm).join(', ') : ''}`, cls: 'act', caption: `${A} searches ${T}` };
+    default: {
+      const text = typeof p.text === 'string' ? p.text : typeof p.result === 'string' ? p.result : null;
+      const verb = (e.kind || 'event').replace(/_/g, ' ');
+      const line = `${A} ${verb}${e.target && e.target !== e.actor ? ' ' + T : ''}${text ? ': ' + text : summarize(p)}`;
+      return { line, cls: /attack|hit|wound|kill|down|dead|strike|miss|duel|threat/.test(e.kind) ? 'fight' : 'misc', caption: line, speech: null };
+    }
+  }
+}
+
+const logEl = $('#log');
+function logLine(text, cls, n, detail) {
+  const d = document.createElement('div');
+  d.className = `ev ${cls || ''}`;
+  if (n != null) d.dataset.seq = n;
+  d.innerHTML = `${n != null ? `<span class="n">#${n}</span>` : ''}${esc(text)}${detail ? `<span class="detail">${esc(detail)}</span>` : ''}`;
+  const stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+  // keep the log in world order even when older events arrive late
+  let before = null;
+  if (n != null) {
+    for (let c = logEl.lastElementChild; c; c = c.previousElementSibling) {
+      if (c.dataset.seq == null || +c.dataset.seq < n) break;
+      before = c;
+    }
+  }
+  logEl.insertBefore(d, before);
+  while (logEl.childElementCount > 400) logEl.firstChild.remove();
+  if (stick) logEl.scrollTop = logEl.scrollHeight;
+}
+
+// bookkeeping the engine records but a player does not need to see
+const QUIET = new Set(['opinion', 'patched', 'cursor', 'tick', 'scheduled', 'unscheduled', 'timer', 'remembered', 'intended']);
+
+function ingestEvents(events, source) {
+  const sorted = [...events].sort((a, b) => a.seq - b.seq);
+  for (const e of sorted) {
+    if (S.seen.has(e.seq)) continue;
+    S.seen.add(e.seq);
+    const f = fmtEvent(e);
+    if (QUIET.has(e.kind)) { f.minor = true; f.cls = 'minor'; f.speech = null; }
+    logLine(f.line, f.cls, e.seq, f.detail);
+    const fresh = source !== 'backlog' && (!S.state || e.t >= S.state.t - 60);
+    if (!fresh) continue;
+    const real = 9000;
+    if (!QUIET.has(e.kind)) Story.event(e);
+    if (f.speech && e.actor) S.speech.set(e.actor, { text: f.speech, until: performance.now() + real });
+    if ((e.kind === 'say' || e.kind === 'talked') && e.actor) {
+      const other = e.payload?.to || (e.target && e.target !== e.actor ? e.target : null);
+      if (other) {
+        const until = performance.now() + real;
+        S.faceAt.set(e.actor, { id: other, until });
+        S.faceAt.set(other, { id: e.actor, until });
+        if (e.actor === S.youId) S.lastTalk = other;
+        else if (other === S.youId) S.lastTalk = e.actor;
+      }
+    }
+    if (f.activity && e.actor) S.activity.set(e.actor, { text: f.activity, until: performance.now() + real });
+    const mine = e.actor === S.youId && e.kind === 'act';
+    if (!f.minor && !mine && f.caption) addCaption(f.caption, '');
+  }
+}
+
+const capEl = $('#captions');
+function addCaption(text, cls) {
+  const c = { id: Math.random().toString(36).slice(2), text, cls, at: performance.now() };
+  S.captions.push(c);
+  if (S.captions.length > 4) S.captions.shift();
+  renderCaptions();
+  return c;
+}
+function resolveCaption(c, cls, text) {
+  c.cls = cls;
+  if (text) c.text = text;
+  renderCaptions();
+}
+function renderCaptions() {
+  const now = performance.now();
+  capEl.innerHTML = S.captions
+    .map((c, i) => `<div class="cap pill ${c.cls || ''} ${i < S.captions.length - 2 && now - c.at > 8000 ? 'old' : ''}" title="${esc(c.text)}">${esc(c.text)}</div>`)
+    .join('');
+}
+setInterval(renderCaptions, 2000);
+
+// =====================================================================
+//  HUD
+// =====================================================================
+function meter(label, val, max, color) {
+  const pct = Math.max(0, Math.min(1, max ? val / max : 0)) * 100;
+  return `<div class="meter"><div class="lbl"><i style="background:${color}"></i>${label}<b>${val ?? '–'}/${max ?? '–'}</b></div><div class="bar"><span style="width:${pct}%;background:${color}"></span></div></div>`;
+}
+function renderVitals() {
+  const you = S.state.you, s = you.state || {};
+  const flags = ['thirsty', 'wounded', 'down', 'asleep', 'dead', 'braced', 'hidden'].filter((f) => s[f]);
+  const role = s.role || s.template || you.type;
+  $('#vitals').innerHTML =
+    `<div class="who">${esc(you.name)}<small>${esc(role)}${s.faction ? ' · ' + esc(s.faction) : ''}</small>` +
+    (flags.length ? `<div class="flags">${flags.map((f) => `<span class="flag ${['down', 'dead', 'wounded', 'thirsty'].includes(f) ? 'warn' : ''}">${f}</span>`).join('')}</div>` : '') +
+    `</div>` +
+    meter('HP', s.hp, s.max_hp, 'var(--hp)') +
+    meter('Vigor', s.vigor, s.max_vigor, 'var(--vigor)') +
+    meter('Water', s.water, s.max_water, 'var(--water)');
+}
+function renderPlace() {
+  const st = S.state, a = st.ambient || {};
+  const crumb = (st.here.breadcrumb || []).map((b) => b.name).join(' › ');
+  const html =
+    `<div class="row1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>` +
+    `${crumb ? `<span class="crumb">${esc(crumb)} ›</span>` : ''}<span>${esc(st.here.name)}</span></div>` +
+    `<div class="row2">${esc([a.time_of_day, a.light, a.weather].filter(Boolean).join(' · '))}</div>` +
+    `<div class="desc">${esc(st.here.state?.description || '')}</div>`;
+  const el = $('#place');
+  if (el._html !== html) { el._html = html; el.innerHTML = html; }
+}
+$('#place').addEventListener('click', () => $('#place').classList.toggle('open'));
+
+function renderLatency() {
+  const el = $('#lat');
+  el.classList.toggle('live', S.lat.live);
+  const age = S.lat.pushAt ? (performance.now() - S.lat.pushAt) / 1000 : null;
+  const parts = [S.lat.live ? 'live' : 'offline'];
+  if (S.lat.act != null) parts.push(`act ${S.lat.act} ms`);
+  if (age != null) parts.push(`state ${age < 10 ? age.toFixed(1) : Math.round(age)} s`);
+  if (gpuMs != null) parts.push(`gpu ${gpuMs.toFixed(1)} ms`);
+  el.querySelector('span').textContent = parts.join(' · ');
+}
+setInterval(renderLatency, 200);
+
+function renderHud() {
+  if (!S.state) return;
+  renderVitals();
+  renderPlace();
+  renderTray();
+  renderSayTo();
+}
+
+// The right edge of the bar says what Enter will do.
+function renderSayTo() {
+  const el = $('#sayTo');
+  const input = document.getElementById('sayInput');
+  const s = document.activeElement === input && input.value.trim() ? sugs[sugIdx] : null;
+  if (s) {
+    el.textContent = !s.ok ? 'can’t' : s.kind === 'plan' ? `${s.steps.length} step${s.steps.length > 1 ? 's' : ''}` : s.kind === 'say' ? 'say' : s.kind === 'complete' ? 'Tab' : s.verb;
+    return;
+  }
+  const t = S.sel && S.ents.get(S.sel);
+  el.textContent = t && t.kind === 'person' && !t.you ? `→ ${t.name}` : S.spot && S.spot.placeId === S.placeId ? '◎ here' : '';
+}
+
+// ---------- action tray
+const FORM_VERBS = new Set(['talk', 'parley', 'give', 'show', 'check']);
+function needsForm(a) {
+  const keys = Object.keys(a.params || {});
+  if (!keys.length) return false;
+  return FORM_VERBS.has(a.verb) || (!a.ok && /say what|params/i.test(a.reason || ''));
+}
+function setTray(open) {
+  $('#tray').classList.toggle('open', open);
+  document.body.classList.toggle('tray-open', open);
+  if (open) renderTray();
+}
+
+function renderTray() {
+  const st = S.state;
+  if (!st || !$('#tray').classList.contains('open')) return;
+  const sel = S.sel ?? null;
+
+  const targets = [{ id: null, name: 'Yourself' }];
+  for (const e of st.present || []) if (!(e.state && e.state.hidden)) targets.push({ id: e.id, name: e.name, sub: isPerson(e) ? '' : 'here' });
+  for (const e of st.holding || []) targets.push({ id: e.id, name: e.name, sub: 'held' });
+  const tHtml = targets.map((t) => `<button type="button" data-sel="${esc(t.id ?? '')}" class="${(t.id ?? null) === sel ? 'on' : ''}">${esc(t.name)}${t.sub ? ` <small>${t.sub}</small>` : ''}</button>`).join('');
+  setHtml('#trayTargets', tHtml);
+
+  const isExit = (st.exits || []).some((x) => x.to === sel);
+  const affs = (st.affordances || []).filter((a) => (a.target ?? null) === sel);
+  $('#verbsHead').textContent = sel ? `Actions · ${nm(sel)}` : 'Actions · yourself';
+  const vHtml = affs.length
+    ? affs.map((a, i) => {
+        const form = needsForm(a);
+        const enabled = a.ok || form;
+        return `<button type="button" class="verb ${form ? 'form' : ''}" data-aff="${i}" ${enabled ? '' : 'disabled'} title="${esc(a.ok ? a.doc : a.reason || a.doc)}">${esc(a.verb)}</button>`;
+      }).join('')
+    : `<span class="why">Nothing to do with ${esc(nm(sel))} from here.</span>`;
+  setHtml('#trayVerbs', vHtml);
+  $('#trayVerbs')._affs = affs;
+  const blocked = affs.filter((a) => !a.ok && !needsForm(a));
+  setHtml('#trayWhy', blocked.length ? blocked.slice(0, 4).map((a) => `<b>${esc(a.verb)}</b>: ${esc(a.reason)}`).join('<br>') : '');
+
+  const exits = st.exits || [];
+  $('#trayExitsWrap').style.display = exits.length && !isExit ? '' : 'none';
+  const xHtml = exits.map((x, i) => {
+    const verbs = (st.affordances || []).filter((a) => a.target === x.to && a.ok);
+    return `<div class="exitrow"><kbd>${i + 1}</kbd><span>${esc(x.name)}</span>${verbs.map((a) => `<button type="button" class="verb" data-exit="${esc(x.to)}" data-verb="${esc(a.verb)}" title="${esc(a.doc)}">${esc(a.verb)}</button>`).join('')}</div>`;
+  }).join('');
+  setHtml('#trayExits', xHtml);
+}
+function setHtml(sel, html) { const el = $(sel); if (el._html !== html) { el._html = html; el.innerHTML = html; } }
+
+$('#trayTargets').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-sel]');
+  if (!b) return;
+  const id = b.dataset.sel || null;
+  if (id && S.ents.has(id)) selectEnt(id, false);
+  else { S.sel = id; S.form = null; for (const x of S.ents.values()) x.sel = x.kind === 'person' && x.id === id; renderTray(); renderSayTo(); }
+  renderForm();
+});
+$('#trayVerbs').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-aff]');
+  if (!b || b.disabled) return;
+  const a = $('#trayVerbs')._affs[+b.dataset.aff];
+  if (!a) return;
+  if (needsForm(a) || (ev.shiftKey && Object.keys(a.params || {}).length)) { S.form = a; renderForm(); }
+  else doVerb(a.verb, a.target, null);
+});
+$('#trayExits').addEventListener('click', (ev) => {
+  const b = ev.target.closest('button[data-exit]');
+  if (b) doVerb(b.dataset.verb, b.dataset.exit, null);
+});
+
+function renderForm() {
+  const f = $('#trayForm');
+  const a = S.form;
+  if (!a) { f.hidden = true; f.innerHTML = ''; return; }
+  f.hidden = false;
+  const holding = S.state?.holding || [];
+  const fields = Object.entries(a.params || {}).map(([k, doc]) => {
+    if (k === 'item') return `<label>${esc(k)}<select name="item">${holding.map((h) => `<option value="${esc(h.id)}">${esc(h.name)}</option>`).join('')}</select></label>`;
+    if (k === 'skill') {
+      const opts = String(doc).split(',').map((s) => s.trim()).filter(Boolean);
+      return `<label>${esc(k)}<select name="skill"><option value="">(none)</option>${opts.map((o) => `<option>${esc(o)}</option>`).join('')}</select></label>`;
+    }
+    if (k === 'slow') return `<label class="cb"><input type="checkbox" name="slow"> ${esc(doc)}</label>`;
+    if (k === 'dc') return `<label>${esc(k)}<input type="number" name="dc" placeholder="12" min="1" max="40"></label>`;
+    return `<label>${esc(k)} <input type="text" name="${esc(k)}" placeholder="${esc(doc)}"></label>`;
+  });
+  f.innerHTML = `<div class="fh">${esc(a.verb)}${a.target_name ? ' · ' + esc(a.target_name) : ''}</div>${fields.join('')}<div class="row"><button type="submit" class="verb">Do it ⏎</button><button type="button" class="verb" data-cancel>Cancel</button></div>`;
+  const first = f.querySelector('input[type=text], input[type=number], select');
+  if (first) first.focus();
+}
+$('#trayForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const a = S.form;
+  if (!a) return;
+  const params = {};
+  for (const el of ev.target.querySelectorAll('[name]')) {
+    if (el.type === 'checkbox') { if (el.checked) params[el.name] = true; }
+    else if (el.value !== '') params[el.name] = el.type === 'number' ? Number(el.value) : el.value;
+  }
+  S.form = null;
+  renderForm();
+  doVerb(a.verb, a.target, params);
+});
+$('#trayForm').addEventListener('click', (ev) => { if (ev.target.closest('[data-cancel]')) { S.form = null; renderForm(); } });
+$('#actionsBtn').addEventListener('click', () => setTray(!$('#tray').classList.contains('open')));
+$('#logBtn').addEventListener('click', () => { logEl.classList.toggle('open'); logEl.scrollTop = logEl.scrollHeight; });
+
+// =====================================================================
+//  Narrator: the story told in the manner of Frank Herbert.
+//  All lines here are original; the style is terse, sensory, water-haunted,
+//  with italic inner thought and an epigraph whenever you arrive somewhere.
+// =====================================================================
+const Story = (() => {
+  const el = $('#narr');
+  const paras = [];
+  let on = true, timer = 0, lastAt = 0, salt = 0;
+
+  const EPI = {
+    any: [
+      ['The desert does not hate you. It simply does not count you.', 'saying of the Glass Reach'],
+      ['Every road is a decision someone else made first.', "from the Carriers' Ledger"],
+      ['Silence on the sand is not peace. It is listening.', 'Keth saying'],
+      ['Patience is the only wealth the sun cannot take.', 'scratched on a waystone'],
+      ['The one who counts water will one day count lives.', "marginal note on the Hold's map"],
+      ['A blade left behind is a question waiting for a hand.', 'saying of the Glass Reach'],
+    ],
+    hold: [
+      ['Who holds the water holds the gate. Who holds the gate holds little else for long.', "marginal note on the Hold's map"],
+      ['A writ is a promise made far from the place it must be kept.', "from the Reeve's correspondence"],
+    ],
+    yard: [
+      ['Nine blades for a wall that wants twenty: arithmetic is the first enemy of any garrison.', "from a drill-master's notes"],
+      ['Drill is how the body learns what the mind will forget under the sun.', "from a drill-master's notes"],
+    ],
+    road: [
+      ['Salt keeps meat and grudges equally well.', 'spoken at the Salt Road waystones'],
+      ['A road is only a rumour that enough feet agreed upon.', 'Keth saying'],
+    ],
+    camp: [
+      ['Trust the ledger, not the clerk. Trust the well, not the bucket.', "Carriers' Guild maxim"],
+      ['A full skin is a sermon, and everyone in a dry country is listening.', "from the Carriers' Ledger"],
+    ],
+    ridge: [
+      ['The ridge sees everything and tells it only to those who climb.', 'Keth saying'],
+      ['Stone is patient because it has already lost everything it can lose.', 'Keth saying'],
+    ],
+    flats: [
+      ['Glass remembers every footstep. Walk it as if you were never there.', 'Keth saying'],
+      ['The flats are a mirror, and a mirror is a liar that tells the truth about light.', 'saying of the Glass Reach'],
+    ],
+    dunes: [['Sand moves, and so must you. The only question is who chooses the direction.', 'saying of the Glass Reach']],
+  };
+
+  const THOUGHTS = [
+    'Watch the hands, not the face.',
+    "Every step out here is a loan against the body's water.",
+    'What is offered freely in the Reach has already been paid for by someone.',
+    'Count the exits. Then count who stands between you and them.',
+    'Thirst makes honest people careless, and careless people dead.',
+    'The quiet ones are the ones counting.',
+    'Remember who was watching. Remember who pretended not to.',
+  ];
+
+  const T = {
+    walk: [
+      '{me} crossed to {t}, setting each foot down as though the ground might be listening.',
+      '{me} went to {t} without hurry. Hurry spends water.',
+      '{me} moved toward {t}. The heat leaned on the back of the neck like a patient hand.',
+      'Three paces, four. {me} stopped beside {t} and let the stillness settle again.',
+    ],
+    look: [
+      '{me} studied {t} in silence, letting the details arrange themselves. {d}',
+      '{me} gave {t} a long, measuring look. {d}',
+      "{me} looked at {t} the way one reads a stranger's hands. {d}",
+    ],
+    describe: ['{me} took the measure of the place. {d}', '{me} stood still and let the place speak first. {d}'],
+    read: [
+      '{me} read it twice. Ink is only ink until someone bleeds to enforce it. *“{d}”*',
+      '{me} read the words. They were plain enough, which was reason to distrust them. *“{d}”*',
+    ],
+    watch: ['From the threshold, {me} watched {t} and learned what it would admit to. {d}', '{me} looked toward {t} without stepping through. {d}'],
+    drink: [
+      '{me} drank from {t}, and the water was a small, cool mercy. *Count every swallow,* {me} thought. *The Reach does.*',
+      '{me} drank. The water rested on the tongue a moment before it was allowed to go, the way the old carriers taught.',
+    ],
+    fill: ["{me} filled {t} and felt its weight change: the most honest weight in the Reach.", 'The skin swelled under {me}’s hands. Here, that sound was wealth.'],
+    go: ['{me} turned toward {t}. Behind, the place closed over the space where {me} had stood, as sand closes over a footprint.', '{me} set out for {t}, reading the ground ahead the way a scholar reads a contested text.'],
+    creep: ['{me} took the broken step toward {t}: a pause, a shift, a pause. The sand heard nothing it could name.'],
+    crawl: ['{me} dragged toward {t}, a hand-length at a time. The ground was hot, and indifferent.'],
+    take: ['{me} took {t}. Ownership, in this country, was only a promise that someone would eventually test.'],
+    drop: ['{me} set {t} down. Even that small act was watched.'],
+    give: ['{me} held out {i} to {t}. *Nothing given in the Reach is ever only a gift.*'],
+    show: ['{me} showed {i} to {t} and watched the face, not the object.'],
+    talk: ['{me} spoke with {t}{a}, weighing each word as though it cost water.', '{me} drew {t} aside{a}. *Listen for what is not said,* {me} thought.'],
+    parley: ['{me} named terms to {t}: {o}. The offer hung between them like heat over the glass.'],
+    attack: ['Steel moved. {me} struck at {t}{s}.', '{me} closed on {t}, blade first{s}. *Commit, or do not begin.*'],
+    kill: ['{me} finished it. The sand took what it was given, without comment.'],
+    threaten: ['{me} let {t} see the blade, and the promise in it.'],
+    challenge: ['{me} called {t} out. A circle opened in the sand that no one else would enter.'],
+    yield: ['{me} yielded to {t}. *Pride is a luxury of the well-watered.*'],
+    brace: ['{me} settled into a guard, weight low, the mind emptied of everything but the next breath.'],
+    follow: ['{me} fell in behind {t}, close enough to hear the breathing.'],
+    stay: ['{me} stayed. Sometimes the strongest move is to remain exactly where you are.'],
+    search: ['{me} went through what {t} carried, quick and thorough. Dignity is another thing the desert takes.'],
+    toggle: ['{me} thumbed {t}. The change in its hum was felt more than heard.'],
+    check: ['{me} gathered every sense toward the task. {d}'],
+    say: ['“{q},” {me} said{to}.', '“{q},” said {me}{to}, and waited to see what it would cost.', '{me} spoke{to}: “{q}”'],
+    sayOther: ['“{q},” {a} said{to}.', '“{q},” {a} said{to}. The words came out dry and measured.', '{a} spoke{to}: “{q}”'],
+    arrivedOther: ['{a} came in out of the glare, and the place rearranged itself around the newcomer.', '{a} arrived, shaking sand from their clothes. Every eye made its private accounting.'],
+    drankOther: ['{a} drank from {t}, and every eye followed the water.'],
+    fight: ['Steel moved between {a} and {t}, quick as a lie.', 'Violence, brief and graceless. {a} and {t} parted with less than they began with.'],
+    down: ['{a} went down onto the sand, and the sand did not care.'],
+    dead: ['{a} died. Somewhere, a measure of water was reckoned against the living.'],
+  };
+
+  const pick = (arr, seed) => arr[hashStr(`${seed}|${salt++}`) % arr.length];
+  const fill = (tpl, v) => tpl.replace(/\{(\w+)\}/g, (m, k) => (v[k] ?? '')).replace(/\s+/g, ' ').replace(/\s([.,:;])/g, '$1').trim();
+  const me = () => firstName();
+  const list = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
+  const unquote = (s) => String(s || '').trim().replace(/^['"“‘]+|['"”’]+$/g, '').trim();
+  const thought = (seed, chance = 0.3) => (Math.random() < chance ? ` *${pick(THOUGHTS, seed)}*` : '');
+
+  function segs(s) {
+    const out = [];
+    const re = /\*([^*]+)\*/g;
+    let last = 0, m;
+    while ((m = re.exec(s))) {
+      if (m.index > last) out.push({ t: s.slice(last, m.index), em: false });
+      out.push({ t: m[1], em: true });
+      last = re.lastIndex;
+    }
+    if (last < s.length) out.push({ t: s.slice(last), em: false });
+    return out;
+  }
+  function render(it) {
+    let left = it.shown, html = '';
+    for (const sg of it.segs) {
+      if (left <= 0) break;
+      const part = sg.t.slice(0, left);
+      left -= part.length;
+      html += sg.em ? `<em>${esc(part)}</em>` : esc(part);
+    }
+    if (it.shown < it.total) html += '<span class="caret">▍</span>';
+    it.node.innerHTML = html;
+  }
+  function tick() {
+    const pending = paras.filter((p) => p.shown < p.total);
+    if (!pending.length) { clearInterval(timer); timer = 0; return; }
+    const it = pending[0];
+    // types at ~190 characters a second, faster when the story falls behind
+    it.shown = Math.min(it.total, it.shown + (pending.length > 1 ? 10 : 3));
+    render(it);
+  }
+  function push(text, cls) {
+    if (!on || !text) return;
+    const node = document.createElement('p');
+    node.className = cls || '';
+    const sg = segs(text);
+    const it = { node, segs: sg, total: sg.reduce((n, x) => n + x.t.length, 0), shown: 0 };
+    paras.push(it);
+    el.appendChild(node);
+    while (paras.length > 6) paras.shift().node.remove();
+    paras.forEach((p, i) => { p.node.style.opacity = String(Math.max(0.3, 1 - (paras.length - 1 - i) * 0.16)); });
+    el.classList.add('show');
+    lastAt = performance.now();
+    render(it);
+    if (!timer) timer = setInterval(tick, 16);
+  }
+  el.addEventListener('click', () => { for (const p of paras) { p.shown = p.total; render(p); } });
+  setInterval(() => {
+    if (performance.now() - lastAt > 30000 && !paras.some((p) => p.shown < p.total)) el.classList.remove('show');
+  }, 2000);
+
+  return {
+    setOn(v) { on = v; if (!v) el.classList.remove('show'); else if (paras.length) el.classList.add('show'); },
+    get on() { return on; },
+    arrive(st) {
+      const kind = pickRecipe(st.here);
+      const [q, src] = pick([...(EPI[kind] || []), ...EPI.any], st.here.id);
+      push(`*“${q}”*\n— ${src}`, 'epi');
+      const a = st.ambient || {};
+      const who = (st.present || []).filter((e) => isPerson(e) && !(e.state && e.state.hidden) && e.id !== S.youId).map((e) => e.name);
+      let s = `${st.here.name}. ${st.here.state?.description || ''}`;
+      if (a.light || a.weather) s += ` The light was ${a.light || 'hard'}; ${a.weather || 'the air was still'}.`;
+      if (who.length) s += ` ${list(who)} ${who.length > 1 ? 'were' : 'was'} already there.`;
+      push(fill(s, {}) + thought(st.here.id, 0.5));
+    },
+    walk(ref) { push(fill(pick(T.walk, ref.name), { me: me(), t: ref.name }) + thought(ref.name, 0.25)); },
+    look(ref, d) { push(fill(pick(T.look, ref.name), { me: me(), t: ref.name, d })); },
+    describe(st) {
+      const who = (st.present || []).filter((e) => !(e.state && e.state.hidden)).map((e) => e.name);
+      const d = `${st.here.name}. ${st.here.state?.description || ''}${who.length ? ` Here: ${list(who)}.` : ''}`;
+      push(fill(pick(T.describe, st.here.id), { me: me(), d }) + thought(st.here.id, 0.4));
+    },
+    yourSpeech(text, to) {
+      if (/^\*.+\*$/.test(text.trim())) { push(text.trim().slice(1, -1).replace(/([^.!?])$/, '$1.')); return; }
+      push(fill(pick(T.say, text), { me: me(), q: unquote(text).replace(/[.,]$/, ''), to: to ? ` to ${nm(to)}` : '' }));
+    },
+    act(verb, target, params, r) {
+      const pool = T[verb];
+      const engine = r ? ((r.logs && r.logs.join(' ')) || (typeof r.result === 'string' ? r.result : '')) : '';
+      if (!pool) { if (engine) push(engine); return; }
+      push(fill(pick(pool, verb + target), {
+        me: me(), t: target ? nm(target) : '', d: engine,
+        i: params?.item ? nm(params.item) : 'it',
+        a: params?.about ? ` about ${params.about}` : '',
+        o: params?.offer || '',
+        s: params?.slow ? ', the slow blade sliding for the gap in the ward' : '',
+      }));
+    },
+    event(e) {
+      if (e.actor === S.youId) return; // your own deeds are told as you do them
+      const p = e.payload || {};
+      const a = nm(e.actor), t = nm(e.target);
+      const toName = (id) => (id === S.youId ? me() : nm(id));
+      if (e.kind === 'say' && p.text) {
+        const raw = String(p.text).trim();
+        const to = p.to ? ` to ${toName(p.to)}` : '';
+        // engine lines that already mix prose and quotes ("Hollis smiles… 'Guild business.'") stand as written
+        if (/['“"][^'”"]{3,}['”"]/.test(raw) && !/^['“"]/.test(raw)) return push(raw);
+        if (/["“”]/.test(unquote(raw))) return push(`${a} spoke${to}. ${raw.replace(/^'|'$/g, '')}`);
+        return push(fill(pick(T.sayOther, e.seq), { a, q: unquote(raw).replace(/[.,]$/, ''), to }) + (p.to === S.youId ? thought(e.seq, 0.35) : ''));
+      }
+      if (e.kind === 'arrived') { const who = p.who || e.actor; if (who !== S.youId) push(fill(pick(T.arrivedOther, e.seq), { a: nm(who) })); return; }
+      if (e.kind === 'drank') return push(fill(pick(T.drankOther, e.seq), { a, t }));
+      if (/dead|died|killed/.test(e.kind)) return push(fill(pick(T.dead, e.seq), { a: e.target && e.target !== e.actor ? t : a }));
+      if (/down|fell|collapsed/.test(e.kind)) return push(fill(pick(T.down, e.seq), { a: e.target && e.target !== e.actor ? t : a }));
+      if (/attack|hit|strike|struck|wound|duel/.test(e.kind) && e.target && e.target !== e.actor) return push(fill(pick(T.fight, e.seq), { a, t }));
+    },
+  };
+})();
+
+// =====================================================================
+//  Network: SSE in, actions out
+// =====================================================================
+async function api(tool, args) {
+  try {
+    const r = await fetch('/api/' + tool, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(args || {}) });
+    return await r.json();
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+function reasonOf(out) {
+  const r = out?.result;
+  if (out?.error) return String(out.error);
+  if (r && r.ok === false) return r.reason || r.error || (typeof r.result === 'string' ? r.result : 'refused');
+  return null;
+}
+
+async function doVerb(verb, target, params) {
+  const label = `${verb}${target ? ' ' + nm(target) : ''}`;
+  const cap = addCaption(`${nm(S.youId)} › ${label}`, 'pending');
+  if (S.youId) S.activity.set(S.youId, { text: `${label}…`, until: performance.now() + 30000 });
+  const t0 = performance.now();
+  const args = { verb };
+  if (target) args.target = target;
+  if (params && Object.keys(params).length) args.params = params;
+  const out = await api('act', args);
+  S.lat.act = Math.round(performance.now() - t0);
+  const why = reasonOf(out);
+  if (why) {
+    resolveCaption(cap, 'fail', `${label}: ${why}`);
+    logLine(`${label}: ${why}`, 'fail');
+    S.activity.delete(S.youId);
+    toast(why);
+    return null;
+  }
+  const r = out.result || {};
+  resolveCaption(cap, '', `${nm(S.youId)} › ${label}`);
+  if (Array.isArray(r.events)) ingestEvents(r.events, 'act');
+  const said = new Set();
+  for (const l of r.logs || []) { said.add(l); logLine(l, 'narr'); }
+  if (typeof r.result === 'string' && !said.has(r.result)) logLine(r.result, 'narr');
+  const secs = r.duration > 0 ? r.duration / (S.rate || 1) : 0;
+  S.activity.set(S.youId, { text: secs > 0.5 ? `${label} · ${Math.ceil(secs)}s` : label, until: performance.now() + Math.max(4000, secs * 1000) });
+  Story.act(verb, target, params, r);
+  return r;
+}
+
+async function doSay(text, to) {
+  if (S.youId) S.speech.set(S.youId, { text, until: performance.now() + 9000 });
+  Story.yourSpeech(text, to);
+  if (to) { S.faceAt.set(S.youId, { id: to, until: performance.now() + 9000 }); S.lastTalk = to; }
+  const t0 = performance.now();
+  const out = await api('say', to ? { text, to } : { text });
+  S.lat.act = Math.round(performance.now() - t0);
+  const why = reasonOf(out);
+  if (why) { toast(why); logLine(`say: ${why}`, 'fail'); S.speech.delete(S.youId); return false; }
+  if (Array.isArray(out.result?.events)) ingestEvents(out.result.events, 'act');
+  return true;
+}
+
+// =====================================================================
+//  Words → references: names, kinds of thing, and "here / it / them"
+// =====================================================================
+const STOP = new Set(['the', 'a', 'an', 'of', 'to', 'at', 'on', 'in', 'with', 'by', 'into', 'from', 'my', 'some', 'his', 'her', 'their', 'your', 'our']);
+const DEIX = new Set(['here', 'there', 'this', 'that', 'it', 'thing', 'them', 'him', 'her', 'one', 'spot', 'over', 'place', 'stuff', 'object', 'they', 'those', 'these', 'yonder', 'way']);
+const PERSON_PRON = new Set(['them', 'him', 'her', 'they']);
+const KIND_WORDS = {
+  well: ['water', 'well', 'cistern', 'cask', 'tank', 'source', 'spring', 'trough', 'basin'],
+  letter: ['letter', 'notice', 'note', 'writ', 'sign', 'paper', 'scroll', 'post', 'board', 'message', 'tally', 'ledger'],
+  blade: ['blade', 'sword', 'knife', 'weapon', 'dagger', 'steel'],
+  skin: ['skin', 'waterskin', 'flask', 'bottle', 'canteen', 'bag'],
+  ward: ['ward', 'belt', 'shield', 'plate', 'device'],
+};
+const normT = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9'\s]+/g, ' ').replace(/\s+/g, ' ').trim();
+const wordsOf = (s) => normT(s).split(' ').filter(Boolean);
+const firstName = () => String(nm(S.youId) || 'You').split(/\s+/)[0];
+
+function nameScore(name, phrase) {
+  const pw = wordsOf(phrase).filter((w) => !STOP.has(w));
+  if (!pw.length) return 0;
+  const nw = wordsOf(name).map((x) => x.replace(/'s$/, ''));
+  if (nw.join(' ') === pw.join(' ')) return 5;
+  let hits = 0;
+  for (const w of pw) {
+    const ww = w.replace(/'s$/, '');
+    if (nw.some((x) => x.startsWith(ww) || (ww.length > 3 && (ww.startsWith(x) && x.length > 3 || x.includes(ww))))) hits++;
+    else return 0;
+  }
+  return 1 + hits / nw.length + (nw.find((x) => !STOP.has(x))?.startsWith(pw[0]) ? 0.5 : 0);
+}
+
+function refCandidates() {
+  const st = S.state, out = [];
+  for (const e of st.present || []) if (!(e.state && e.state.hidden)) out.push({ id: e.id, name: e.name, kind: isPerson(e) ? 'person' : 'thing', ent: e });
+  for (const e of st.holding || []) out.push({ id: e.id, name: e.name, kind: 'held', ent: e });
+  for (const x of st.exits || []) out.push({ id: x.to, name: x.name, kind: 'exit' });
+  for (const p of st.known_places || []) {
+    if (p.id !== st.here.id && !(st.exits || []).some((x) => x.to === p.id)) out.push({ id: p.id, name: p.name, kind: 'place' });
+  }
+  return out;
+}
+
+function scoreRef(c, phrase) {
+  const sc = nameScore(c.name, phrase);
+  if (sc) return sc + (c.kind === 'held' ? 0.05 : 0);
+  const pw = wordsOf(phrase).filter((w) => !STOP.has(w) && !DEIX.has(w));
+  if (!pw.length || !c.ent) return 0;
+  if (c.kind === 'thing' || c.kind === 'held') {
+    const kw = KIND_WORDS[thingKind(c.ent)] || [];
+    if (pw.every((w) => kw.includes(w) || kw.includes(w.replace(/s$/, '')))) return 1.2;
+  }
+  const s = c.ent.state || {};
+  const desc = wordsOf([s.description, s.role, s.template].filter(Boolean).join(' ')).map((x) => x.replace(/'s$/, ''));
+  if (pw.every((w) => desc.some((x) => x.startsWith(w)))) return 0.9;
+  return 0;
+}
+
+// want: list of kinds that fit (person, thing, held, exit, place, spot) or null for any
+function resolveRef(phrase, want, ctx) {
+  const raw = wordsOf(phrase);
+  const content = raw.filter((w) => !STOP.has(w) && !DEIX.has(w));
+  const cands = refCandidates();
+  const fits = (c) => !want || want.includes(c.kind);
+  if (content.length) {
+    let best = null, bs = 0;
+    for (const c of cands) { if (!fits(c)) continue; const s = scoreRef(c, phrase); if (s > bs) { bs = s; best = c; } }
+    return best;
+  }
+  const spotRef = () => ({ kind: 'spot', id: null, name: 'that spot', pt: [S.spot.x, S.spot.z] });
+  const spotHere = S.spot && S.spot.placeId === S.placeId;
+  const selEnt = S.sel ? cands.find((c) => c.id === S.sel) : null;
+  if (raw.some((w) => PERSON_PRON.has(w)) || (want && want.length === 1 && want[0] === 'person')) {
+    const lt = S.lastTalk && cands.find((c) => c.id === S.lastTalk);
+    const pick = [selEnt && selEnt.kind === 'person' ? selEnt : null, ctx.lastPerson, lt].find((c) => c && fits(c));
+    if (pick) return pick;
+    const people = cands.filter((c) => c.kind === 'person' && c.id !== S.youId);
+    return people.length === 1 && fits(people[0]) ? people[0] : null;
+  }
+  if ((raw.includes('here') || raw.includes('there') || raw.includes('spot')) && spotHere && fits({ kind: 'spot' })) return spotRef();
+  if (selEnt && fits(selEnt)) return selEnt;
+  if (ctx.last && fits(ctx.last)) return ctx.last;
+  if (spotHere) {
+    // "the thing" with no selection: whatever sits nearest the clicked spot
+    let best = null, bd = Infinity;
+    for (const e of S.ents.values()) {
+      if (e.kind !== 'thing') continue;
+      const c = cands.find((x) => x.id === e.id);
+      if (!c || !fits(c)) continue;
+      const d = Math.hypot(e.pos[0] - S.spot.x, e.pos[2] - S.spot.z);
+      if (d < bd) { bd = d; best = c; }
+    }
+    if (best && bd < 4) return best;
+    if (fits({ kind: 'spot' })) return spotRef();
+  }
+  return null;
+}
+
+// Longest leading phrase that names something: "ossa two shards" → Ossa + "two shards"
+function leadingRef(phrase, want, ctx) {
+  const w = phrase.split(' ').filter(Boolean);
+  for (let n = w.length; n >= 1; n--) {
+    const r = resolveRef(w.slice(0, n).join(' '), want, ctx);
+    if (r) return { ref: r, rest: w.slice(n).join(' ') };
+  }
+  return { ref: null, rest: phrase };
+}
+
+// =====================================================================
+//  Plain English → steps: "I walk over here and check the thing"
+// =====================================================================
+const LEMMA = {};
+const lemma = (verb, list) => list.split(' ').forEach((f) => (LEMMA[f] = verb));
+lemma('go', 'go goes going went walk walks walking head heads move moves run runs step steps travel travels return returns enter enters wander wanders stroll strolls approach approaches come comes leave leaves hurry hurries cross crosses');
+lemma('creep', 'creep creeps sneak sneaks tiptoe tiptoes slip slips skulk prowl');
+lemma('crawl', 'crawl crawls drag drags');
+lemma('look', 'check checks look looks examine examines inspect inspects study studies observe observes peer peers eye eyes scan scans glance glances investigate investigates');
+lemma('read', 'read reads peruse');
+lemma('watch', 'watch watches scout scouts spy');
+lemma('drink', 'drink drinks sip sips gulp gulps swig swigs quench');
+lemma('fill', 'fill fills refill refills top');
+lemma('take', 'take takes grab grabs pick picks get gets collect collects snatch pocket');
+lemma('drop', 'drop drops put puts set sets place discard');
+lemma('give', 'give gives hand hands pass passes');
+lemma('show', 'show shows present presents flash');
+lemma('talk', 'talk talks speak speaks chat chats ask asks tell tells discuss discusses question confer');
+lemma('say', 'say says shout shouts whisper whispers yell yells mutter mutters reply replies answer answers call calls announce declare murmur exclaim');
+lemma('attack', 'attack attacks strike strikes stab stabs hit hits slash slashes cut cuts swing lunge punch charge');
+lemma('kill', 'kill kills finish slay');
+lemma('threaten', 'threaten threatens intimidate menace');
+lemma('challenge', 'challenge challenges duel');
+lemma('yield', 'yield yields surrender');
+lemma('brace', 'brace braces guard defend parry block');
+lemma('follow', 'follow follows tail accompany');
+lemma('stay', 'stay stays halt stop remain');
+lemma('parley', 'parley negotiate bargain haggle trade barter deal offer');
+lemma('toggle', 'toggle switch flip activate deactivate turn');
+lemma('search', 'search searches loot frisk rummage');
+
+function splitClauses(text) {
+  const quotes = [];
+  let s = text.replace(/["“”]([^"“”]*)["“”]?/g, (m, q) => { quotes.push(q.trim()); return ` qq${quotes.length - 1}qq `; });
+  const parts = s
+    .split(/\s*(?:,\s*(?:and\s+|then\s+)?|;|\.\s+|\band then\b|\bthen\b|\band\b)\s*/i)
+    .map((x) => x.trim().replace(/[.!?]+$/, ''))
+    .filter(Boolean);
+  return { parts, quotes };
+}
+
+function parseClause(part, quotes) {
+  const qs = [...part.matchAll(/qq(\d+)qq/g)].map((m) => quotes[+m[1]]);
+  const quote = qs.length ? qs.join(' ') : null;
+  let s = part.replace(/qq\d+qq/g, ' ').toLowerCase().replace(/[^a-z0-9'\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const sneaky = /\b(slowly|carefully|quietly|silently|stealthily|sneakily|softly|cautiously)\b/.test(s);
+  const me = firstName().toLowerCase().replace(/[^a-z]/g, '');
+  let subject = false, be = false;
+  for (let i = 0; i < 8; i++) {
+    const before = s;
+    s = s.replace(new RegExp(`^(i'm|i am|we're|we are|i'll|i will|we'll|i|we|let me|let's|lets${me ? '|' + me : ''})\\b\\s*`), (m, w) => {
+      subject = true;
+      if (/'m|am|'re|are/.test(w)) be = true;
+      return '';
+    });
+    s = s.replace(/^(will|shall|then|also|just|now|finally|again|quickly|slowly|carefully|quietly|calmly|gently|immediately|cautiously|silently|stealthily|sneakily|softly|boldly|go and|going to|gonna|try to|tries to|attempt to|want to|need to|decide to|start to|begin to|to)\s+/, '');
+    if (s === before) break;
+  }
+  if (be && /^going\b/.test(s)) be = false;
+  const w = s.split(' ').filter(Boolean);
+  let verb = be ? null : LEMMA[w[0]] || null;
+  const rest = verb ? w.slice(1).join(' ') : s;
+  if (!verb && !w.length && quote) verb = 'say';
+  return { verb, rest, quote, sneaky, subject, be, original: s };
+}
+
+function emoteText(cl) {
+  // "I nod slowly" → "*Corin nods slowly*"; "I'm tired" → "*Corin is tired*"
+  const w = cl.original.split(' ').filter(Boolean);
+  if (!w.length) return null;
+  const swap = (t) => t.replace(/\bmy\b/g, 'their').replace(/\bmyself\b/g, 'themself').replace(/\bme\b/g, 'them');
+  if (cl.be) return `*${firstName()} is ${swap(w.join(' '))}*`;
+  let v = w[0];
+  if (/(s|sh|ch|x|z|o)$/.test(v)) v += 'es';
+  else if (/[^aeiou]y$/.test(v)) v = v.slice(0, -1) + 'ies';
+  else v += 's';
+  const tail = swap(w.slice(1).join(' '));
+  return `*${firstName()} ${v}${tail ? ' ' + tail : ''}*`;
+}
+
+function buildStep(cl, ctx) {
+  const { verb, quote, sneaky } = cl;
+  const rest = cl.rest.replace(/^(?:(?:up|down|over|out|back|across|around|along|into|in|onto|to|toward|towards|at|on|through|inside|outside|off|from|with)\s+)+/, '').trim();
+  const affs = S.state.affordances || [];
+  const aff = (v, id) => affs.find((a) => a.verb === v && (a.target ?? null) === (id ?? null));
+  const act = (v, ref, params) => {
+    const a = aff(v, ref ? ref.id : null);
+    const filled = params && Object.keys(params).length;
+    const ok = a ? a.ok || (filled && /say what|params/i.test(a.reason || '')) : true;
+    return { type: 'act', verb: v, ref, params: filled ? params : null, ok, reason: ok ? null : a.reason };
+  };
+  const keep = (ref) => { if (ref) { ctx.last = ref; if (ref.kind === 'person') ctx.lastPerson = ref; } return ref; };
+  const fail = (msg) => ({ type: 'error', msg });
+
+  switch (verb) {
+    case 'go': case 'creep': case 'crawl': {
+      const v = verb === 'go' && sneaky ? 'creep' : verb;
+      const exits = S.state.exits || [];
+      if (/^(away|out|off|outside)?$/.test(rest) && cl.rest && exits.length === 1) return act(v, keep({ kind: 'exit', id: exits[0].to, name: exits[0].name }));
+      const ref = keep(resolveRef(rest || 'here', null, ctx));
+      if (!ref) return fail(rest ? `There's no “${rest}” to go to from here.` : 'Where to? Click a spot or someone first.');
+      if (ref.kind === 'exit' || ref.kind === 'place') return act(v, ref);
+      if (ref.kind === 'held') return fail(`You're holding ${ref.name}.`);
+      return { type: 'walk', ref };
+    }
+    case 'look': {
+      const skills = (affs.find((a) => a.verb === 'check')?.params?.skill || '').split(',').map((x) => x.trim()).filter(Boolean);
+      const sk = skills.find((x) => wordsOf(rest).includes(x));
+      if (sk) { const dc = rest.match(/\b(\d{1,2})\b/); return act('check', null, dc ? { skill: sk, dc: +dc[1] } : { skill: sk }); }
+      if (!rest || /^(around|about|round)$/.test(rest)) return { type: 'describe' };
+      const ref = keep(resolveRef(rest, null, ctx));
+      if (!ref) return fail(`You can't see “${rest}” here.`);
+      if (ref.kind === 'exit') return act('watch', ref);
+      if (ref.kind === 'place') return fail(`${ref.name} isn't next to here.`);
+      if (ref.kind === 'spot') return { type: 'describe' };
+      if (aff('read', ref.id)?.ok) return act('read', ref);
+      return { type: 'inspect', ref };
+    }
+    case 'read': {
+      const ref = keep(resolveRef(rest, ['thing', 'held'], ctx));
+      return ref ? act('read', ref) : fail(`Nothing to read called “${rest}”.`);
+    }
+    case 'watch': {
+      const ref = keep(resolveRef(rest, null, ctx));
+      if (!ref) return fail(`You can't see “${rest}” from here.`);
+      return ref.kind === 'exit' ? act('watch', ref) : { type: 'inspect', ref };
+    }
+    case 'drink': {
+      const named = rest.replace(/^(?:deep|deeply|up|some|a little)\b\s*/, '').replace(/^(?:water\s+)?(?:from\s+)?/, '').trim();
+      let ref = named ? resolveRef(named, ['thing', 'held'], ctx) : null;
+      if (named && !ref && !/^water$/.test(named)) return fail(`There's no “${named}” to drink from here.`);
+      if (!ref) {
+        const here = new Set((S.state.present || []).map((e) => e.id));
+        const a = affs.find((x) => x.verb === 'drink' && x.ok && here.has(x.target)) || affs.find((x) => x.verb === 'drink' && x.ok);
+        if (a) ref = { id: a.target, name: a.target_name, kind: 'thing' };
+      }
+      return ref ? act('drink', keep(ref)) : fail('There is nothing to drink from here.');
+    }
+    case 'fill': {
+      let ref = resolveRef(rest.replace(/\s+(?:at|from|in|with)\s+.*$/, ''), ['held'], ctx);
+      if (!ref) { const a = affs.find((x) => x.verb === 'fill' && x.ok); if (a) ref = { id: a.target, name: a.target_name, kind: 'held' }; }
+      return ref ? act('fill', keep(ref)) : fail('There is nothing to fill here.');
+    }
+    case 'take': case 'drop': case 'toggle': case 'search': case 'kill': case 'follow': case 'threaten': case 'challenge': case 'yield': {
+      const want = { take: ['thing'], drop: ['held'], toggle: ['held', 'thing'], search: ['person'], kill: ['person'], follow: ['person'], threaten: ['person'], challenge: ['person'], yield: ['person'] }[verb];
+      const ref = keep(resolveRef(rest.replace(/^(?:on|off)\s+/, ''), want, ctx));
+      return ref ? act(verb, ref) : fail(rest ? `There's no “${rest}” to ${verb} here.` : `${verb[0].toUpperCase() + verb.slice(1)} what?`);
+    }
+    case 'attack': {
+      const ref = keep(resolveRef(rest.replace(/\b(?:with|using)\b.*$/, ''), ['person'], ctx));
+      if (!ref) return fail(rest ? `There's no “${rest}” to attack here.` : 'Attack whom?');
+      return act('attack', ref, sneaky || /\bslow\b/.test(rest) ? { slow: true } : null);
+    }
+    case 'brace': case 'stay':
+      return act(verb, null);
+    case 'give': case 'show': {
+      let itemP = rest, whoP = '';
+      const m = rest.match(/^(.*?)\s+\bto\b\s+(.+)$/);
+      if (m) { itemP = m[1]; whoP = m[2]; }
+      else {
+        const lead = leadingRef(rest, ['person'], ctx);
+        if (lead.ref && lead.rest && resolveRef(lead.rest, ['held'], ctx)) { whoP = rest.slice(0, rest.length - lead.rest.length).trim(); itemP = lead.rest; }
+      }
+      const item = resolveRef(itemP, ['held'], ctx);
+      const who = keep(resolveRef(whoP || 'them', ['person'], ctx));
+      if (!item) return fail(`You aren't holding “${itemP}”.`);
+      if (!who) return fail(`${verb === 'give' ? 'Give' : 'Show'} it to whom? Click someone or name them.`);
+      return act(verb, who, { item: item.id });
+    }
+    case 'say': {
+      const m = rest.match(/^(.*?)\s*\b(?:to|at|towards?)\s+(.+)$/);
+      if (quote) {
+        const who = (rest && resolveRef(m ? m[2] : rest, ['person'], ctx)) || (S.sel && S.ents.get(S.sel)?.kind === 'person' && !S.ents.get(S.sel).you ? resolveRef('them', ['person'], ctx) : null);
+        return { type: 'say', text: quote, to: keep(who) };
+      }
+      if (!rest) return fail('Say what?');
+      const who = m ? resolveRef(m[2], ['person'], ctx) : null;
+      return who ? { type: 'say', text: m[1], to: keep(who) } : { type: 'say', text: cl.rest, to: null };
+    }
+    case 'talk': {
+      const lead = leadingRef(rest, ['person'], ctx);
+      const who = keep(lead.ref || resolveRef('them', ['person'], ctx));
+      if (quote) return { type: 'say', text: quote, to: who };
+      if (!who) return fail('Talk to whom? Click someone or name them.');
+      const about = lead.rest.replace(/^(?:about|regarding|concerning|re|on|that)\s+/, '').trim();
+      return act('talk', who, about ? { about } : null);
+    }
+    case 'parley': {
+      const lead = leadingRef(rest, ['person'], ctx);
+      const who = keep(lead.ref || resolveRef('them', ['person'], ctx));
+      const offer = quote || lead.rest.replace(/^(?:offering|offer|for|with)\s+/, '').trim();
+      if (!who) return fail('Parley with whom?');
+      if (!offer) return fail('What do you offer? e.g. “offer Ossa two shards for water”.');
+      return act('parley', who, { offer });
+    }
+  }
+  return null;
+}
+
+function interpret(text) {
+  const { parts, quotes } = splitClauses(text);
+  const clauses = [];
+  for (const p of parts) {
+    const cl = parseClause(p, quotes);
+    const prev = clauses[clauses.length - 1];
+    if (!cl.verb && !cl.subject && !cl.quote && prev) {
+      // "take the skin and the blade" → the blade inherits take; topics keep talking
+      if (['talk', 'say', 'parley'].includes(prev.verb)) { prev.rest += ' and ' + cl.original; continue; }
+      if (prev.verb) { cl.verb = prev.verb; cl.rest = cl.original; }
+    }
+    clauses.push(cl);
+  }
+  return clauses;
+}
+
+function stepsFor(clauses) {
+  const ctx = { last: null, lastPerson: null };
+  return clauses.map((cl) => {
+    if (cl.verb) return buildStep(cl, ctx);
+    if (cl.subject && cl.original) return { type: 'emote', text: emoteText(cl) };
+    return null;
+  }).filter(Boolean);
+}
+
+function stepLabel(st) {
+  const pt = (p) => Object.entries(p || {}).map(([k, v]) => (k === 'item' ? nm(v) : k === 'slow' ? 'slow blade' : `${k} ${v}`)).join(' · ');
+  switch (st.type) {
+    case 'act': return { v: st.verb, t: st.ref ? st.ref.name : '', p: pt(st.params), ok: st.ok, why: st.reason };
+    case 'walk': return { v: 'walk to', t: st.ref.name, p: '(only you see this)', ok: true };
+    case 'say': return { v: 'say', t: st.to ? `→ ${st.to.name}` : '', p: `“${st.text}”`, ok: true };
+    case 'inspect': return { v: 'look at', t: st.ref.name, ok: true };
+    case 'describe': return { v: 'look around', t: '', ok: true };
+    case 'emote': return { v: 'emote', t: '', p: `${st.text} (said aloud)`, ok: true };
+    default: return { v: '✗', t: st.msg, ok: false, why: st.msg };
+  }
+}
+
+function planCand(text) {
+  const steps = stepsFor(interpret(text));
+  if (!steps.length) return null;
+  const labels = steps.map(stepLabel);
+  const bad = labels.find((l) => !l.ok);
+  return { kind: 'plan', steps: labels, raw: steps, ok: !bad, reason: bad ? bad.why : null, fill: null, run: () => runPlan(text) };
+}
+
+const waitFor = (cond, ms) => new Promise((resolve) => {
+  const t0 = performance.now();
+  (function tick() { if (cond() || performance.now() - t0 > ms) resolve(); else setTimeout(tick, 50); })();
+});
+
+function walkTo(ref) {
+  const you = S.ents.get(S.youId);
+  if (!you) return;
+  let pt = ref.pt;
+  if (!pt) {
+    const e = S.ents.get(ref.id) || S.ents.get('exit:' + ref.id);
+    if (e) {
+      const dx = you.pos[0] - e.pos[0], dz = you.pos[2] - e.pos[2];
+      const d = Math.hypot(dx, dz) || 1;
+      const stand = e.tk === 'well' ? 1.55 : e.kind === 'exit' ? 1.0 : 0.85;
+      pt = [e.pos[0] + (dx / d) * stand, e.pos[2] + (dz / d) * stand];
+    }
+  }
+  if (!pt) return;
+  S.youSpot = { x: pt[0], z: pt[1], placeId: S.placeId };
+  you.target = [pt[0], 0, pt[1]];
+  if (ref.id) S.faceAt.set(S.youId, { id: ref.id, until: performance.now() + 120000 });
+  S.activity.set(S.youId, { text: `walking to ${ref.name}`, until: performance.now() + 2500 });
+  Story.walk(ref);
+}
+
+function describeHere() {
+  const st = S.state;
+  const who = (st.present || []).filter((e) => !(e.state && e.state.hidden)).map((e) => e.name);
+  logLine(`${st.here.name}. ${st.here.state?.description || ''}${who.length ? ` Here: ${who.join(', ')}.` : ''}`, 'narr');
+  Story.describe(st);
+}
+
+async function inspectRef(ref) {
+  S.activity.set(S.youId, { text: `looking at ${ref.name}`, until: performance.now() + 4000 });
+  if (ref.id) S.faceAt.set(S.youId, { id: ref.id, until: performance.now() + 15000 });
+  // what we already know shows instantly; only ask the server when we know nothing
+  const known = [...(S.state.present || []), ...(S.state.holding || [])].find((e) => e.id === ref.id);
+  const s = known?.state || {};
+  const local = s.description || s.text;
+  if (local) { logLine(`${ref.name}: ${local}`, 'narr'); Story.look(ref, local); return true; }
+  const out = await api('inspect', { entity: ref.id });
+  const r = out?.result || {};
+  const d = r.state?.description || r.state?.text || reasonOf(out) || 'There was nothing more to it than that.';
+  logLine(`${ref.name}: ${d}`, 'narr');
+  Story.look(ref, d);
+  return true;
+}
+
+async function runStep(st) {
+  switch (st.type) {
+    case 'error': toast(st.msg); logLine(st.msg, 'fail'); return false;
+    case 'walk': walkTo(st.ref); return true;
+    case 'say': return doSay(st.text, st.to ? st.to.id : undefined);
+    case 'emote': return doSay(st.text);
+    case 'describe': describeHere(); return true;
+    case 'inspect': return inspectRef(st.ref);
+    case 'act': {
+      if (!st.ok && st.reason) { toast(st.reason); logLine(`${st.verb} ${st.ref ? st.ref.name : ''}: ${st.reason}`, 'fail'); return false; }
+      if (st.ref && st.ref.id && st.verb !== 'go' && st.verb !== 'creep') S.faceAt.set(S.youId, { id: st.ref.id, until: performance.now() + 15000 });
+      const before = S.placeId;
+      const r = await doVerb(st.verb, st.ref ? st.ref.id : null, st.params);
+      if (!r) return false;
+      if (['go', 'creep', 'crawl'].includes(st.verb)) {
+        await waitFor(() => S.placeId !== before && !S.pendingPlace, 4000 + ((r.duration || 0) / (S.rate || 1)) * 1000);
+      }
+      return true;
+    }
+  }
+  return true;
+}
+
+// Steps are rebuilt just before they run, so "go to the yard and talk to Ruhl"
+// finds Ruhl in the yard after arriving.
+async function runPlan(text) {
+  const clauses = interpret(text);
+  const ctx = { last: null, lastPerson: null };
+  for (const cl of clauses) {
+    const st = cl.verb ? buildStep(cl, ctx) : cl.subject && cl.original ? { type: 'emote', text: emoteText(cl) } : null;
+    if (!st) continue;
+    if (!(await runStep(st))) break;
+  }
+}
+
+// =====================================================================
+//  Command bar: suggestions, history, Enter to act
+// =====================================================================
+const cmd = $('#sayInput');
+const sugEl = $('#suggest');
+let sugs = [], sugIdx = 0, sugNav = false, histIdx = -1;
+let hist = [];
+try { hist = JSON.parse(localStorage.getItem('embody.hist') || '[]'); } catch { hist = []; }
+
+const selectedPersonId = () => { const t = S.sel && S.ents.get(S.sel); return t && t.kind === 'person' && !t.you ? t.id : null; };
+const shortName = (n) => wordsOf(n).filter((w) => !STOP.has(w)).slice(0, 2).join(' ');
+
+function sayCand(text, to) {
+  const toE = to ? S.ents.get(to) : null;
+  return { kind: 'say', verb: 'say', target: toE ? `→ ${toE.name}` : '', extra: `“${text}”`, ok: true, fill: null, run: () => doSay(text, to || undefined) };
+}
+
+function actCand(a, params) {
+  const pr = {};
+  for (const k of Object.keys(a.params || {})) if (params[k] != null) pr[k] = params[k];
+  const missingNeeded = !a.ok && /say what|params/i.test(a.reason || '');
+  const filled = Object.keys(pr).length > 0;
+  const ok = a.ok || (missingNeeded && filled);
+  const tname = a.target ? a.target_name || nm(a.target) : '';
+  const freeKeys = Object.keys(a.params || {}).filter((k) => !['slow', 'dc', 'skill'].includes(k));
+  const missing = freeKeys.filter((k) => pr[k] == null);
+  if (missing.length && (a.ok || missingNeeded)) {
+    const k0 = missing[0];
+    const fill = (k0 === 'item' ? `${a.verb} ` : `${a.verb} ${shortName(tname)} ${k0} `).replace(/\s+/g, ' ');
+    return { kind: 'complete', verb: a.verb, target: tname, extra: `${k0} …`, ok: true, fill, run: null };
+  }
+  const shown = Object.entries(pr).map(([k, v]) => (k === 'item' ? nm(v) : k === 'slow' ? 'slow blade' : `${k} ${v}`)).join(' · ');
+  return {
+    kind: 'act', verb: a.verb, target: tname, extra: shown, ok, reason: ok ? null : a.reason,
+    fill: `${a.verb} ${shortName(tname)}`.trim() + ' ',
+    run: () => doVerb(a.verb, a.target, filled ? pr : null),
+  };
+}
+
+function rawCand(vw, rest) {
+  let target = null, tname = rest;
+  if (rest) {
+    let bs = 0;
+    for (const c of refCandidates()) { const sc = nameScore(c.name, rest); if (sc > bs) { bs = sc; target = c.id; tname = c.name; } }
+    if (!target) target = rest;
+  }
+  return { kind: 'raw', verb: vw, target: rest ? tname : '', extra: 'try it anyway', ok: true, fill: null, run: () => doVerb(vw, target, null) };
+}
+
+const IDEA_ORDER = ['go', 'talk', 'drink', 'fill', 'read', 'watch', 'give', 'show', 'follow', 'check', 'brace', 'parley', 'creep', 'take', 'toggle'];
+function ideas() {
+  const seen = new Set(), out = [];
+  const affs = (S.state.affordances || []).filter((a) => a.ok && IDEA_ORDER.includes(a.verb));
+  affs.sort((a, b) => IDEA_ORDER.indexOf(a.verb) - IDEA_ORDER.indexOf(b.verb));
+  for (const a of affs) {
+    const key = a.verb + a.target;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(actCand(a, {}));
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+// Verb-first commands: "go yard", "drink cistern", "talk ossa about water"
+function strictSuggestions(text) {
+  const affsAll = S.state.affordances || [];
+  const m = text.match(/^(\S+)\s*(.*)$/);
+  const vw = m[1].toLowerCase(), rest = m[2];
+  if (vw === 'say') return [];
+  const verbs = [...new Set(affsAll.map((a) => a.verb))];
+  const exact = verbs.includes(vw) ? vw : null;
+  const prefix = verbs.filter((v) => v.startsWith(vw));
+  const verb = exact || (rest && prefix.length === 1 ? prefix[0] : null);
+  if (!verb) {
+    const out = [];
+    if (!rest) for (const v of prefix) {
+      const n = affsAll.filter((a) => a.verb === v && a.ok).length;
+      out.push({ kind: 'complete', verb: v, target: '', extra: n ? `${n} option${n > 1 ? 's' : ''}` : 'not possible now', ok: true, fill: v + ' ', run: null });
+    }
+    const speechy = /[.!?,]$/.test(text) || wordsOf(text).length >= 4;
+    const say = sayCand(text, selectedPersonId());
+    const raw = rawCand(vw, rest);
+    return speechy ? [...out, say, raw] : [...out, raw, say];
+  }
+  const affs = affsAll.filter((a) => a.verb === verb);
+  const keys = new Set(affs.flatMap((a) => Object.keys(a.params || {})));
+  const params = {};
+  let p = rest, colon = null;
+  const ci = p.indexOf(':');
+  if (ci >= 0) { colon = p.slice(ci + 1).trim(); p = p.slice(0, ci).trim(); }
+  let itemPhrase = null;
+  if (keys.has('item')) {
+    const mi = p.match(/^(.*?)\s+(?:to|for|at)\s+(.+)$/i);
+    if (mi) { itemPhrase = mi[1]; p = mi[2]; } else if (p) { itemPhrase = p; p = ''; }
+  }
+  if (keys.has('slow') && /\bslow(ly)?\b/i.test(p)) { params.slow = true; p = p.replace(/\bslow(ly)?\b/gi, ' ').trim(); }
+  if (keys.has('dc')) { const md = p.match(/\b(?:dc\s*)?(\d{1,2})\b/i); if (md) { params.dc = +md[1]; p = (p.slice(0, md.index) + p.slice(md.index + md[0].length)).trim(); } }
+  if (keys.has('skill')) {
+    const sk = affs.map((a) => a.params?.skill).find(Boolean);
+    const list = sk ? String(sk).split(',').map((x) => x.trim().toLowerCase()) : [];
+    const w = wordsOf(p).find((x) => list.includes(x));
+    if (w) { params.skill = w; p = p.replace(new RegExp(`\\b${w}\\b`, 'i'), ' ').trim(); }
+  }
+  const freeKeys = [...keys].filter((k) => !['item', 'slow', 'dc', 'skill'].includes(k));
+  for (const k of freeKeys) {
+    const mk = p.match(new RegExp(`\\b${k}\\b\\s*(.*)$`, 'i'));
+    if (mk) { if (mk[1]) params[k] = mk[1].trim(); p = p.slice(0, mk.index).trim(); }
+    else if (colon) { params[k] = colon; colon = null; }
+  }
+  if (itemPhrase) {
+    let best = null, bs = 0;
+    for (const h of S.state.holding || []) { const sc = scoreRef({ name: h.name, kind: 'held', ent: h }, itemPhrase); if (sc > bs) { bs = sc; best = h; } }
+    params.item = best ? best.id : itemPhrase;
+  }
+  const targeted = affs.filter((a) => a.target);
+  const w = p.split(/\s+/).filter(Boolean);
+  let chosen = [];
+  if (w.length && targeted.length) {
+    for (let n = w.length; n >= 1 && !chosen.length; n--) {
+      const phrase = w.slice(0, n).join(' ');
+      const scored = targeted
+        .map((a) => [a, scoreRef(refCandidates().find((c) => c.id === a.target) || { name: a.target_name || nm(a.target) }, phrase)])
+        .filter(([, s]) => s > 0)
+        .sort((x, y) => y[1] - x[1]);
+      if (scored.length) {
+        chosen = scored.map(([a]) => a);
+        const remainder = w.slice(n).join(' ');
+        if (remainder && freeKeys.length && params[freeKeys[0]] == null) params[freeKeys[0]] = remainder;
+      }
+    }
+  } else if (!w.length) {
+    const sel = S.sel ?? null;
+    const selAff = affs.filter((a) => a.target && a.target === sel);
+    const self = affs.filter((a) => !a.target);
+    chosen = [...self, ...selAff, ...affs.filter((a) => a.target && !selAff.includes(a))];
+    chosen.sort((a, b) => (b.ok - a.ok));
+  }
+  const out = chosen.slice(0, 7).map((a) => actCand(a, params));
+  if (w.length && !chosen.length) {
+    out.push({ kind: 'none', verb, target: p, extra: '', ok: false, reason: `nothing called “${p}” to ${verb} here`, fill: null, run: null });
+    out.push(rawCand(verb, rest));
+  }
+  return out;
+}
+
+function buildSuggestions(raw) {
+  if (!S.state) return [];
+  const text = raw.trim();
+  if (!text) return ideas();
+  const me = firstName().toLowerCase().replace(/[^a-z]/g, '');
+  const natural = /^(i|i'm|i'll|i am|we|let me|let's)\b/i.test(text) || /["“”]/.test(text) || /\b(and|then)\b|,/.test(text) ||
+    (me && new RegExp(`^${me}\\b`, 'i').test(text)) || /^say\b/i.test(text);
+  const plan = planCand(text);
+  const strict = /^say\b/i.test(text) ? [] : strictSuggestions(text);
+  if (!plan) return strict;
+  if (natural) {
+    const lone = plan.raw.length === 1 && plan.raw[0].type === 'say';
+    const speakIt = lone || /^say\b/i.test(text) ? [] : [sayCand(text.replace(/^["“]|["”]$/g, ''), selectedPersonId())];
+    return [plan, ...speakIt];
+  }
+  const strong = strict[0] && (strict[0].kind === 'act' || strict[0].kind === 'complete');
+  if (strong) return plan.raw.length === 1 && plan.raw[0].type === 'act' ? strict : [...strict.slice(0, 6), plan];
+  return [plan, ...strict];
+}
+
+function renderSuggest() {
+  const open = sugs.length && document.activeElement === cmd;
+  sugEl.classList.toggle('open', !!open);
+  if (open) {
+    sugEl.innerHTML = sugs.map((s, i) => {
+      const on = i === sugIdx;
+      const right = s.ok ? (s.kind === 'complete' ? 'Tab ↹' : on ? '↵' : '') : s.kind === 'plan' ? 'can’t' : s.reason || '';
+      const body = s.kind === 'plan'
+        ? `<span class="steps">${s.steps.map((l) => `<span class="v">${esc(l.v)}</span>${l.t ? ` <span class="t">${esc(l.t)}</span>` : ''}${l.p ? ` <span class="p">${esc(l.p)}</span>` : ''}`).join('<span class="sep"> › </span>')}</span>`
+        : `<span class="v">${esc(s.verb)}</span>${s.target ? `<span class="t">${esc(s.target)}</span>` : ''}${s.extra ? `<span class="p">${esc(s.extra)}</span>` : ''}`;
+      return `<div class="sg ${s.kind} ${on ? 'on' : ''} ${s.ok ? '' : 'no'}" data-i="${i}">${body}<span class="r">${esc(right)}</span></div>`;
+    }).join('');
+  }
+  renderSayTo();
+}
+function updateSuggest() { sugs = buildSuggestions(cmd.value); sugIdx = 0; renderSuggest(); }
+function refreshSuggest() { const keep = sugIdx; sugs = buildSuggestions(cmd.value); sugIdx = Math.max(0, Math.min(keep, sugs.length - 1)); renderSuggest(); }
+
+cmd.addEventListener('focus', updateSuggest);
+cmd.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== cmd) { sugEl.classList.remove('open'); renderSayTo(); } }, 120));
+cmd.addEventListener('input', () => { histIdx = -1; sugNav = false; updateSuggest(); });
+cmd.addEventListener('keydown', (ev) => {
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault();
+    if (!sugs.length) { sugs = buildSuggestions(cmd.value); sugIdx = 0; sugNav = true; renderSuggest(); }
+    else { sugIdx = (sugIdx + 1) % sugs.length; sugNav = true; renderSuggest(); }
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    if ((!cmd.value || histIdx >= 0) && hist.length && !sugNav) {
+      histIdx = Math.min(hist.length - 1, histIdx + 1);
+      cmd.value = hist[hist.length - 1 - histIdx];
+      updateSuggest();
+    } else if (sugs.length) { sugIdx = (sugIdx - 1 + sugs.length) % sugs.length; sugNav = true; renderSuggest(); }
+  } else if (ev.key === 'Tab') {
+    ev.preventDefault();
+    const s = sugs[sugIdx];
+    if (s && s.fill) { cmd.value = s.fill; updateSuggest(); }
+  }
+});
+sugEl.addEventListener('mousedown', (ev) => ev.preventDefault());
+sugEl.addEventListener('click', (ev) => {
+  const row = ev.target.closest('.sg');
+  if (!row) return;
+  const s = sugs[+row.dataset.i];
+  if (s.kind === 'complete') { cmd.value = s.fill; updateSuggest(); cmd.focus(); }
+  else runSuggestion(s, cmd.value.trim());
+});
+
+$('#sayForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const text = cmd.value.trim();
+  if (!text && !sugNav) return;
+  if (text) { const keep = sugIdx; sugs = buildSuggestions(text); sugIdx = Math.min(keep, sugs.length - 1); }
+  const s = sugs[Math.max(0, sugIdx)];
+  if (!s) return;
+  if (s.kind === 'complete') { cmd.value = s.fill; updateSuggest(); return; }
+  runSuggestion(s, text);
+});
+
+function runSuggestion(s, text) {
+  if (text) {
+    hist = hist.filter((h) => h !== text);
+    hist.push(text);
+    if (hist.length > 80) hist.shift();
+    try { localStorage.setItem('embody.hist', JSON.stringify(hist)); } catch { /* storage may be blocked */ }
+  }
+  histIdx = -1;
+  sugNav = false;
+  cmd.value = '';
+  if (!s.ok) {
+    const why = s.reason || 'Not possible right now';
+    toast(why);
+    logLine(`${text || s.verb}: ${why}`, 'fail');
+  } else if (s.run) {
+    s.run();
+  }
+  // keep the scene clear after acting; ↓ brings the ideas back
+  sugs = [];
+  sugIdx = 0;
+  renderSuggest();
+}
+
+function applyState(st, meta) {
+  if (!st?.you || !st?.here) return;
+  S.state = st;
+  S.youId = st.you.id;
+  if (st.clock?.rate) S.rate = st.clock.rate;
+  learnNames(st);
+  S.lat.pushAt = performance.now();
+  if (S.placeId !== st.here.id) {
+    if (S.placeId == null) { S.placeId = st.here.id; buildPlace(st); S.fade = 1; S.fadeDir = -1; }
+    else { S.pendingPlace = st; S.fadeDir = 1; S.sel = null; }
+  } else if (!S.pendingPlace) {
+    layoutEntities(st, false);
+  } else {
+    S.pendingPlace = st;
+  }
+  setAmbient(st.ambient);
+  if (st.events?.length) ingestEvents(st.events, meta?.source || 'state');
+  renderHud();
+  if (document.activeElement === cmd) refreshSuggest();
+  $('#boot').classList.add('gone');
+}
+
+function connect() {
+  const es = new EventSource('/api/stream');
+  es.onopen = () => { S.lat.live = true; };
+  es.onerror = () => { S.lat.live = false; };
+  es.onmessage = (m) => {
+    let msg;
+    try { msg = JSON.parse(m.data); } catch { return; }
+    if (msg.type === 'state') applyState(msg.state, msg);
+    else if (msg.type === 'events') ingestEvents(msg.events, msg.source);
+    else if (msg.type === 'error') toast(msg.error);
+  };
+}
+
+let toastTimer = 0;
+function toast(text, ms = 3500) {
+  const el = $('#toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// =====================================================================
+//  Keyboard & toggles
+// =====================================================================
+function setMode(m) {
+  S.mode = m;
+  for (const b of document.querySelectorAll('#modeSeg button')) b.classList.toggle('on', +b.dataset.mode === m);
+}
+function setPalette(p) {
+  S.pal = p;
+  for (const b of document.querySelectorAll('#palSeg button')) b.classList.toggle('on', b.dataset.pal === p);
+  document.body.style.background = PALETTES[p].ink;
+}
+$('#modeSeg').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) setMode(+b.dataset.mode); });
+$('#palSeg').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) setPalette(b.dataset.pal); });
+function setNarr(v) {
+  Story.setOn(v);
+  for (const b of document.querySelectorAll('#narrSeg button')) b.classList.toggle('on', (b.dataset.n === '1') === v);
+}
+$('#narrSeg').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) setNarr(b.dataset.n === '1'); });
+
+function quickGo(placeId) {
+  const affs = (S.state?.affordances || []).filter((a) => a.target === placeId);
+  const a = affs.find((x) => x.verb === 'go' && x.ok) || affs.find((x) => x.verb === 'crawl' && x.ok) || affs.find((x) => x.ok);
+  if (a) doVerb(a.verb, placeId, null);
+  else toast((affs[0] && affs[0].reason) || 'You cannot go that way');
+}
+function cycleSel(dir) {
+  const ids = [...S.ents.values()].filter((e) => !e.you).map((e) => e.id);
+  if (!ids.length) return;
+  const cur = [...S.ents.values()].findIndex((e) => (e.kind === 'exit' ? e.placeId : e.id) === S.sel);
+  const list = [...S.ents.values()].filter((e) => !e.you);
+  const idx = list.findIndex((e) => (e.kind === 'exit' ? e.placeId : e.id) === S.sel);
+  const next = list[(idx + dir + list.length) % list.length] || list[0];
+  selectEnt(next.id, false);
+  void cur;
+}
+
+addEventListener('keydown', (ev) => {
+  const typing = ev.target.matches('input, textarea, select');
+  if (typing) {
+    if (ev.key === 'Escape') ev.target.blur();
+    return;
+  }
+  const k = ev.key;
+  if (k >= '1' && k <= '9') { const x = S.state?.exits?.[+k - 1]; if (x) quickGo(x.to); }
+  else if (k === 'Enter' || k === '/') { ev.preventDefault(); $('#sayInput').focus(); }
+  else if (k === 'n' || k === 'N') setNarr(!Story.on);
+  else if (k === 'a' || k === 'A') setTray(!$('#tray').classList.contains('open'));
+  else if (k === 'l' || k === 'L') { logEl.classList.toggle('open'); logEl.scrollTop = logEl.scrollHeight; }
+  else if (k === 'h' || k === 'H') setMode(1 - S.mode);
+  else if (k === 'p' || k === 'P') setPalette(S.pal === 'neon' ? 'desert' : 'neon');
+  else if (k === 'o' || k === 'O') cam.spin = !cam.spin;
+  else if (k === 'Tab') { ev.preventDefault(); cycleSel(ev.shiftKey ? -1 : 1); }
+  else if (k === 'Escape') { S.sel = null; S.form = null; for (const x of S.ents.values()) x.sel = false; setTray(false); renderForm(); renderSayTo(); }
+  else if (k === 'ArrowLeft') cam.yaw -= 0.15;
+  else if (k === 'ArrowRight') cam.yaw += 0.15;
+  else if (k === 'ArrowUp') cam.pitch = Math.min(1.25, cam.pitch + 0.08);
+  else if (k === 'ArrowDown') cam.pitch = Math.max(0.06, cam.pitch - 0.08);
+  else if (k === '+' || k === '=') cam.dist = Math.max(5, cam.dist * 0.9);
+  else if (k === '-') cam.dist = Math.min(32, cam.dist * 1.1);
+});
+
+requestAnimationFrame(frame);
+connect();
+</script>
+</body>
+</html>
