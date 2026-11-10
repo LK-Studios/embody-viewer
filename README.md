@@ -38,6 +38,8 @@ Then open **http://localhost:4477**.
 - `EMBODY_URL` is the Embody server's MCP endpoint, and `EMBODY_TOKEN` is your grant.
 - If you already play Embody through Claude Code, leave both unset. The viewer reads the
   `embody` server entry in `~/.claude.json` and plays the same seat.
+- If the world releases your seat while you're away, the bridge takes it back by itself. It
+  remembers the last character it played in `.seat.json`; set `EMBODY_ENTITY` to choose one.
 - `PORT` changes the local port.
 - The token stays in the Node process. The page only talks to `127.0.0.1`.
 

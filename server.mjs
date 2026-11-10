@@ -152,18 +152,50 @@ class McpClient {
 
   async call(name, args) {
     await this.ensure();
+    let out;
     try {
-      return await this.callOnce(name, args);
+      out = await this.callOnce(name, args);
     } catch (e) {
       // Session expired or the server restarted: open a new session, retry once.
-      if ([400, 401, 404].includes(e.status)) {
-        this.ready = null;
-        await this.ensure();
-        return this.callOnce(name, args);
-      }
-      throw e;
+      if (![400, 401, 404].includes(e.status)) throw e;
+      this.ready = null;
+      await this.ensure();
+      out = await this.callOnce(name, args);
     }
+    // The world forgot us (it restarted, or the seat timed out): take the grant's seat again, retry once.
+    if (name !== 'join' && notSeated(out)) {
+      const j = await this.callOnce('join', seat.entity ? { entity: seat.entity, ...(seat.world ? { world_id: seat.world } : {}) } : {});
+      if (j?.error || j?.result?.ok === false) {
+        const why = j?.error || j?.result?.reason || 'refused';
+        if (why !== this.joinRefused) console.error(`[${this.label}] could not take your seat: ${why}`);
+        this.joinRefused = why;
+        return out;
+      }
+      this.joinRefused = null;
+      console.log(`[${this.label}] rejoined your seat`);
+      out = await this.callOnce(name, args);
+    }
+    return out;
   }
+}
+
+function notSeated(out) {
+  const r = out?.result;
+  return r?.ok === false && /not in this world|join\(/i.test(`${r.reason || ''} ${r.hint || ''}`);
+}
+
+// The character we play, so a dropped seat can be taken again: EMBODY_ENTITY if set,
+// otherwise the last one the world showed us (kept in .seat.json beside this file).
+const SEAT_FILE = path.join(HERE, '.seat.json');
+const seat = (() => { try { return JSON.parse(fs.readFileSync(SEAT_FILE, 'utf8')) || {}; } catch { return {}; } })();
+if (process.env.EMBODY_ENTITY) seat.entity = process.env.EMBODY_ENTITY;
+function rememberSeat(state) {
+  const entity = state?.you?.id, world = state?.world;
+  if (!entity || process.env.EMBODY_ENTITY) return;
+  if (entity === seat.entity && (!world || world === seat.world)) return;
+  seat.entity = entity;
+  if (world) seat.world = world;
+  try { fs.writeFileSync(SEAT_FILE, JSON.stringify(seat)); } catch {}
 }
 
 // ---------------------------------------------------------------- state hub
@@ -191,6 +223,7 @@ function rememberEvents(events) {
 
 function pushState(state, source, fetchedMs) {
   if (!state?.you) return;
+  rememberSeat(state);
   rememberEvents(state.events);
   if (state.t < latestT) {
     // Older than what the page already has: forward only its events.
@@ -239,6 +272,7 @@ async function watchLoop() {
       if (r?.you) pushState(r, 'wait', ms);
       else if (r?.events?.length) { rememberEvents(r.events); broadcast({ type: 'events', events: r.events, source: 'wait' }); refresh('wait'); }
       else if (out?.error) { broadcast({ type: 'error', error: String(out.error) }); await sleep(1000); }
+      else if (r?.ok === false) { broadcast({ type: 'error', error: String(r.reason || 'refused') }); await sleep(3000); }
     } catch (e) {
       console.error('[watch]', e.message);
       await sleep(1000);
@@ -320,7 +354,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '127.0.0.1', async () => {
-  console.log(`Embody ASCII viewer → http://localhost:${PORT}`);
+  console.log(`Embody Viewer → http://localhost:${PORT}`);
   console.log(`Relaying to ${new URL(config.url).host}`);
   try {
     await Promise.all([main.ensure(), watcher.ensure()]);
