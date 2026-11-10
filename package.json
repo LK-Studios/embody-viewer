@@ -1,7 +1,7 @@
 {
   "name": "embody-viewer",
-  "version": "0.3.0",
-  "description": "A live, playable 3D halftone and ASCII viewer for Embody worlds",
+  "version": "0.4.0",
+  "description": "A live, playable 3D halftone viewer for Embody worlds",
   "type": "module",
   "main": "server.mjs",
   "scripts": {
@@ -10,7 +10,7 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["embody", "mcp", "ascii", "halftone", "webgl", "agents", "world-engine"],
+  "keywords": ["embody", "mcp", "halftone", "webgl", "agents", "world-engine"],
   "license": "MIT",
   "author": "LK Studio",
   "repository": "github:LK-Studios/embody-viewer",

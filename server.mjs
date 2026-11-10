@@ -1,4 +1,4 @@
-// Embody ASCII bridge: serves the 3D ASCII client and relays it to the Embody
+// Embody Viewer bridge: serves the halftone client and relays it to the Embody
 // MCP server over streamable HTTP. Zero dependencies (Node 18+).
 //
 // Low-latency design
@@ -118,7 +118,7 @@ class McpClient {
       params: {
         protocolVersion: '2025-06-18',
         capabilities: {},
-        clientInfo: { name: 'embody-ascii', version: '0.2.0' },
+        clientInfo: { name: 'embody-viewer', version: '0.4.0' },
       },
     });
     if (reply.error) throw new Error(`initialize: ${reply.error.message}`);

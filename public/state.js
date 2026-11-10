@@ -9,7 +9,7 @@ const S = {
   names: new Map(), seen: new Set(), ents: new Map(), slots: new Map(),
   speech: new Map(), activity: new Map(), captions: [], faceAt: new Map(),
   spot: null, youSpot: null, lastTalk: null,
-  mode: 0, pal: 'neon', fade: 1, fadeDir: -1, pendingPlace: null,
+  pal: 'desert', fade: 1, fadeDir: -1, pendingPlace: null,
   set: null,                // the current place's set: props, spots, lights, camera
   amb: null,                // the current light: sun, sky, fog, rays
   lat: { act: null, pushAt: 0, live: false },

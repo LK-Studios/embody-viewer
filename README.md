@@ -3,9 +3,9 @@
 A live, playable 3D viewer for **[Embody](https://github.com/newsbubbles/embody)**, the
 deterministic world engine for agents by [newsbubbles](https://github.com/newsbubbles).
 
-Connect it to an Embody world and your character's surroundings render as halftone dots or
-ASCII art: a lit, moody set for each place, with everyone present drawn as a silhouette going
-about their business. You type what you do in plain English, and a narrator retells it in the
+Connect it to an Embody world and your character's surroundings render in halftone dots: a
+lit, moody set for each place, with everyone present drawn as a silhouette going about their
+business. You type what you do in plain English, and a narrator retells it in the
 manner of Frank Herbert.
 
 LK Studio built it while playing **[The Glass Reach](https://github.com/newsbubbles/embody/tree/main/worlds/glass-reach)**,
@@ -17,9 +17,9 @@ This repo is only the window onto it.
 > An independent viewer, not part of the Embody project. It talks to an Embody server
 > through Embody's MCP interface and plays whichever seat your grant gives you.
 
-| Halftone | ASCII | Typed commands and narrator |
+| Red Ridge at dusk (desert palette) | The same, neon palette | Typed commands and narrator |
 | :---: | :---: | :---: |
-| ![Red Ridge at dusk: Nico on the perch with his glass, Sefa on watch, Keth cloths on a cord](docs/halftone.jpg) | ![The Salt Road in ASCII](docs/ascii.jpg) | ![A typed command previewed on Red Ridge](docs/typed-commands.jpg) |
+| ![Red Ridge at dusk: Nico on the perch with his glass, Sefa on watch, Keth cloths on a cord, a fire](docs/ridge.jpg) | ![Red Ridge at dusk in the neon palette](docs/neon.jpg) | ![A typed command previewed on Red Ridge](docs/typed-commands.jpg) |
 
 | The Deepwell | The Deep | The Bone Field |
 | :---: | :---: | :---: |
@@ -93,9 +93,10 @@ weapon.
 
 **Renders in three passes.** WebGL2 throughout. The first pass raymarches the set (ground,
 cave, every group of shapes whose bound is close enough to matter) into two render targets at
-about two texels per character cell. The second composes light, fog, rays, glow and dust. The
-third draws the result at full resolution as halftone dots or ASCII glyphs. Every loop shares
-one scene function, which keeps the shader compile to about two seconds on ANGLE.
+about two texels per halftone cell. The second composes light, fog, rays, glow and dust. The
+third draws the result at full resolution as halftone dots, tinted by the palette: desert
+(sand, rust and bone) by default, or neon (violet and magenta, with a wireframe grid). Every
+loop shares one scene function, which keeps the shader compile to about two seconds on ANGLE.
 
 **Takes plain English.** The command bar takes commands or ordinary sentences, and shows
 how it read your line before you press Enter:
@@ -134,8 +135,7 @@ page, so it adds no delay. Its flavour is tuned to The Glass Reach.
 | `Enter` or `/` | type what you do (`↑` history, `↓` ideas, `Tab` completes) |
 | `A` | actions tray, built from the engine's own affordances |
 | `1`–`9` | go through that exit |
-| `H` | switch between halftone and ASCII |
-| `P` | switch between the neon and desert palettes |
+| `P` | switch between the desert and neon palettes |
 | `N` | turn the narrator on or off |
 | `L` | event log |
 | `O` | slow orbit |

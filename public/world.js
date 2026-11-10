@@ -8,7 +8,7 @@
 //    pass 1  raymarch the set (two targets: light/material/fog/lines and
 //            depth/emission/light-source)
 //    pass 2  compose at low resolution: god rays, glow, dust, heat shimmer
-//    pass 3  halftone dots or ASCII glyphs at full resolution
+//    pass 3  halftone dots at full resolution
 // =====================================================================
 
 const MAXG = 48;          // object groups: the first level of culling
@@ -759,17 +759,14 @@ void main() {
   o = vec4(lum, s0.g, s0.b, s0.a);
 }`;
 
-// Pass 3: halftone dots or ASCII glyphs.
+// Pass 3: halftone dots.
 const GL_PRESENT = `#version 300 es
 precision highp float;
 precision highp int;
 uniform sampler2D uScene;
-uniform sampler2D uGlyph;
 uniform vec2 uRes;
 uniform vec2 uSceneRes;
 uniform vec2 uCell;
-uniform int uMode;
-uniform float uGlyphN;
 uniform float uFade;
 uniform float uVig;
 uniform vec3 uPal[32];
@@ -793,39 +790,14 @@ void main() {
   else if (mi == 14) col = mix(uSunB, uSunA, s.b);
   else col = mix(uPal[mi], uSkyBot, s.b * 0.8);
   float line = texture(uScene, fc / uRes).a;
-  bool body = mi == 3 || mi == 4 || mi == 10 || mi == 11;
-  vec3 c;
-  if (uMode == 0) {
-    vec3 paper = mix(col, vec3(1.0), 0.3);
-    vec3 ink = mix(col, uInk, 0.6);
-    float r = 0.72 * sqrt(clamp(1.0 - lum, 0.0, 1.0));
-    float d = length((fc - ctr) / uCell.y);
-    float aa = 1.2 / uCell.y;
-    c = mix(paper, ink, 1.0 - smoothstep(r - aa, r + aa, d));
-    c = mix(c, uLine, clamp(line, 0.0, 1.0) * 0.85);
-  } else if (uMode == 2) {
-    // raw light, no dots: for judging a set
-    vec4 r = texture(uScene, fc / uRes);
-    vec4 rn = texelFetch(uScene, ivec2(clamp(fc / uRes, 0.0, 0.9999) * uSceneRes), 0);
-    int rm = int(rn.g * 31.0 + 0.5);
-    vec3 rc = rm == 15 ? mix(uSkyBot, uSkyTop, rn.b) : rm == 14 ? mix(uSunB, uSunA, rn.b) : mix(uPal[rm], uSkyBot, rn.b * 0.8);
-    c = mix(uInk, mix(rc, vec3(1.0), 0.2), clamp(r.r, 0.0, 1.0));
-    c = mix(c, uLine, clamp(r.a, 0.0, 1.0) * 0.5);
-  } else {
-    float l = mi == 15 ? lum * 0.38 : lum;
-    float gi = floor(clamp(l, 0.0, 1.0) * (uGlyphN - 1.0) + 0.5);
-    vec3 fg = mix(col, vec3(1.0), 0.18) * (0.6 + 0.6 * lum);
-    float lc = 0.0;
-    for (int k = 0; k < 4; k++) {
-      vec2 off = vec2((k == 0 || k == 2) ? -0.3 : 0.3, k < 2 ? -0.3 : 0.3) * uCell;
-      lc = max(lc, texture(uScene, (ctr + off) / uRes).a);
-    }
-    if (lc > 0.5) { gi = 5.0; fg = uLine * (0.7 + 0.3 * lc); }
-    if (body && lum < 0.4) { gi = 8.0; fg = mix(col, uInk, 0.45); }
-    vec2 lp = (fc - cell * uCell) / uCell;
-    float g = texture(uGlyph, vec2((gi + lp.x) / uGlyphN, 1.0 - lp.y)).a;
-    c = mix(uInk, fg, g);
-  }
+  // a dot per cell, bigger where it is darker, over paper tinted by the material
+  vec3 paper = mix(col, vec3(1.0), 0.3);
+  vec3 ink = mix(col, uInk, 0.6);
+  float r = 0.72 * sqrt(clamp(1.0 - lum, 0.0, 1.0));
+  float d = length((fc - ctr) / uCell.y);
+  float aa = 1.2 / uCell.y;
+  vec3 c = mix(paper, ink, 1.0 - smoothstep(r - aa, r + aa, d));
+  c = mix(c, uLine, clamp(line, 0.0, 1.0) * 0.85);
   if (uFade > 0.001) c = mix(c, uInk, step(hash(cell), uFade));
   vec2 q = fc / uRes;
   c *= 1.0 - uVig + uVig * pow(16.0 * q.x * q.y * (1.0 - q.x) * (1.0 - q.y), 0.3);
@@ -908,26 +880,6 @@ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, PRIM_ROWS, 0, gl.RGBA, gl.FLOAT, 
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 
-const RAMP = ' .:-=+*#%@';
-const glyphTex = gl.createTexture();
-(function makeGlyphs() {
-  const cw = 40, ch = 64;
-  const c = document.createElement('canvas');
-  c.width = cw * RAMP.length; c.height = ch;
-  const x = c.getContext('2d');
-  x.fillStyle = '#fff';
-  x.font = `bold ${Math.round(ch * 0.8)}px Consolas, "Cascadia Mono", "Courier New", monospace`;
-  x.textAlign = 'center';
-  x.textBaseline = 'middle';
-  [...RAMP].forEach((g, i) => x.fillText(g, i * cw + cw / 2, ch * 0.54));
-  gl.bindTexture(gl.TEXTURE_2D, glyphTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
-  gl.generateMipmap(gl.TEXTURE_2D);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-})();
 
 // ---------------------------------------------------------------------
 //  Shapes
@@ -1898,6 +1850,7 @@ function computeCamera() {
   C = { pos, F, R, U, tan: Math.tan(cam.fov / 2), yaw };
 }
 function project(p, w, h) {
+  if (!C) return null;
   const rel = V.sub(p, C.pos);
   const z = V.dot(rel, C.F);
   if (z < 0.2) return null;
@@ -2027,8 +1980,7 @@ function frame(now) {
   const pal = PALETTES[S.pal];
   const sky = skyColors(pal);
   const sun = sunDir();
-  const cellCss = S.mode === 0 ? [5, 5] : [7.2, 12];
-  const cell = [cellCss[0] * dpr, cellCss[1] * dpr];
+  const cell = [5 * dpr, 5 * dpr];
   sizeScene(Math.max(8, Math.ceil(canvas.width / cell[1] * S.q)), Math.max(8, Math.ceil(canvas.height / cell[1] * S.q)));
 
   // lights and shafts for this frame
@@ -2111,19 +2063,16 @@ function frame(now) {
   gl.uniform2f(u2('uWind2'), V.dot([amb.wind[0], 0, amb.wind[1]], C.R) * -0.4, 0.05);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-  // pass 3: dots or glyphs
+  // pass 3: halftone dots
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.viewport(0, 0, canvas.width, canvas.height);
   gl.useProgram(progPresent);
   const u3 = progPresent.u;
   gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texC);
-  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, glyphTex);
-  gl.uniform1i(u3('uScene'), 0); gl.uniform1i(u3('uGlyph'), 1);
+  gl.uniform1i(u3('uScene'), 0);
   gl.uniform2f(u3('uRes'), canvas.width, canvas.height);
   gl.uniform2f(u3('uSceneRes'), sceneW, sceneH);
   gl.uniform2f(u3('uCell'), cell[0], cell[1]);
-  gl.uniform1i(u3('uMode'), S.mode);
-  gl.uniform1f(u3('uGlyphN'), RAMP.length);
   gl.uniform1f(u3('uFade'), S.fade);
   gl.uniform1f(u3('uVig'), amb.vig);
   gl.uniform3fv(u3('uPal'), palFlat(pal));

@@ -18,7 +18,7 @@
     --mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #120a35; color: #fff; font-family: var(--ui); }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1009; color: #fff; font-family: var(--ui); }
   #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; cursor: grab; touch-action: none; }
   #gl.dragging { cursor: grabbing; }
   #tags { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
@@ -224,8 +224,7 @@
 <div id="vitals" class="pill"></div>
 <button id="place" class="pill" title="Show the description"></button>
 <div id="topright">
-  <div class="pill seg" id="modeSeg"><button data-mode="0" class="on">Halftone</button><button data-mode="1">ASCII</button></div>
-  <div class="pill seg" id="palSeg"><button data-pal="neon" class="on">Neon</button><button data-pal="desert">Desert</button></div>
+  <div class="pill seg" id="palSeg"><button data-pal="desert" class="on">Desert</button><button data-pal="neon">Neon</button></div>
   <div class="pill seg" id="narrSeg"><button data-n="1" class="on">Narrator</button><button data-n="0">Off</button></div>
   <div class="pill" id="lat"><i></i><span>connecting…</span></div>
 </div>
@@ -255,7 +254,7 @@
   </div>
 </div>
 <div id="narr" title="Click to finish the line"></div>
-<div id="help">drag to orbit · wheel to zoom · click someone, something or the ground<br>⏎ or / type what you do · 1–9 exits · A actions · L log · N narrator · H halftone/ascii · P palette</div>
+<div id="help">drag to orbit · wheel to zoom · click someone, something or the ground<br>⏎ or / type what you do · 1–9 exits · A actions · L log · N narrator · P palette</div>
 <div id="toast" class="pill"></div>
 <div id="boot">CONNECTING TO THE WORLD…</div>
 
@@ -346,6 +345,7 @@ function rayDir(cx, cy) {
   return V.norm([0, 1, 2].map((i) => C.F[i] + u * C.R[i] * C.tan * asp + v * C.U[i] * C.tan));
 }
 function groundAt(cx, cy) {
+  if (!C) return null;   // no frame drawn yet, so no camera
   const d = rayDir(cx, cy);
   if (d[1] >= -0.01) return null;
   const t = -C.pos[1] / d[1];
@@ -353,6 +353,7 @@ function groundAt(cx, cy) {
   return Math.hypot(x, z - 0.4) < 14 ? [x, z] : null;
 }
 function pickAt(cx, cy) {
+  if (!C) return null;
   const d = rayDir(cx, cy);
   let best = null, bt = Infinity;
   for (const e of S.ents.values()) {
@@ -1728,16 +1729,11 @@ function toast(text, ms = 3500) {
 // =====================================================================
 //  Keyboard & toggles
 // =====================================================================
-function setMode(m) {
-  S.mode = m;
-  for (const b of document.querySelectorAll('#modeSeg button')) b.classList.toggle('on', +b.dataset.mode === m);
-}
 function setPalette(p) {
   S.pal = p;
   for (const b of document.querySelectorAll('#palSeg button')) b.classList.toggle('on', b.dataset.pal === p);
   document.body.style.background = PALETTES[p].ink;
 }
-$('#modeSeg').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) setMode(+b.dataset.mode); });
 $('#palSeg').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) setPalette(b.dataset.pal); });
 function setNarr(v) {
   Story.setOn(v);
@@ -1774,7 +1770,6 @@ addEventListener('keydown', (ev) => {
   else if (k === 'n' || k === 'N') setNarr(!Story.on);
   else if (k === 'a' || k === 'A') setTray(!$('#tray').classList.contains('open'));
   else if (k === 'l' || k === 'L') { logEl.classList.toggle('open'); logEl.scrollTop = logEl.scrollHeight; }
-  else if (k === 'h' || k === 'H') setMode(1 - S.mode);
   else if (k === 'p' || k === 'P') setPalette(S.pal === 'neon' ? 'desert' : 'neon');
   else if (k === 'o' || k === 'O') cam.spin = !cam.spin;
   else if (k === 'Tab') { ev.preventDefault(); cycleSel(ev.shiftKey ? -1 : 1); }
