@@ -271,6 +271,16 @@ const server = http.createServer(async (req, res) => {
       return res.end(fs.readFileSync(path.join(HERE, 'public', 'index.html')));
     }
 
+    // the client's own scripts and images, by plain file name only
+    const asset = url.pathname.match(/^\/([a-z0-9][a-z0-9_-]*\.(js|css|png|jpg|svg))$/i);
+    if (req.method === 'GET' && asset) {
+      const file = path.join(HERE, 'public', asset[1]);
+      if (!fs.existsSync(file)) return sendJson(res, 404, { error: 'not found' });
+      const types = { js: 'text/javascript', css: 'text/css', png: 'image/png', jpg: 'image/jpeg', svg: 'image/svg+xml' };
+      res.writeHead(200, { 'Content-Type': `${types[asset[2].toLowerCase()]}; charset=utf-8`, 'Cache-Control': 'no-store' });
+      return res.end(fs.readFileSync(file));
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/stream') {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',

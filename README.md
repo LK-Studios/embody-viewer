@@ -4,8 +4,9 @@ A live, playable 3D viewer for **[Embody](https://github.com/newsbubbles/embody)
 deterministic world engine for agents by [newsbubbles](https://github.com/newsbubbles).
 
 Connect it to an Embody world and your character's surroundings render as halftone dots or
-ASCII art, with everyone present drawn as a silhouette. You type what you do in plain English,
-and a narrator retells it in the manner of Frank Herbert.
+ASCII art: a lit, moody set for each place, with everyone present drawn as a silhouette going
+about their business. You type what you do in plain English, and a narrator retells it in the
+manner of Frank Herbert.
 
 LK Studio built it while playing **[The Glass Reach](https://github.com/newsbubbles/embody/tree/main/worlds/glass-reach)**,
 one of Embody's example worlds: a desert fief, a cracked cistern, and a people who hold the
@@ -18,7 +19,11 @@ This repo is only the window onto it.
 
 | Halftone | ASCII | Typed commands and narrator |
 | :---: | :---: | :---: |
-| ![Corin on the Salt Road in halftone](docs/halftone.jpg) | ![The same scene in ASCII](docs/ascii.jpg) | ![A typed command previewed on Red Ridge](docs/typed-commands.jpg) |
+| ![Red Ridge at dusk: Nico on the perch with his glass, Sefa on watch, Keth cloths on a cord](docs/halftone.jpg) | ![The Salt Road in ASCII](docs/ascii.jpg) | ![A typed command previewed on Red Ridge](docs/typed-commands.jpg) |
+
+| The Deepwell | The Deep | The Bone Field |
+| :---: | :---: | :---: |
+| ![Elder Taan by the drip, Iska with her yoke, a shaft of light on the black pool](docs/deepwell.jpg) | ![Under the dunes: a sand pour, the coils, a ringed mouth](docs/deep.jpg) | ![A crawler broken across the back, the ribs of it showing](docs/bones.jpg) |
 
 ## Run it
 
@@ -40,19 +45,55 @@ Then open **http://localhost:4477**.
 
 ## What it does
 
-**Renders the place you're in.** It's a two-pass WebGL2 renderer. The first pass raymarches
-a small diorama (terrain, wireframe dunes and mountains, a striped sun, the place's
-buildings and props) at about two texels per character cell. The second pass draws it at
-full resolution as halftone dots or ASCII glyphs. Each place gets a seeded scene chosen
-from its name and description (hold, yard, road, camp, ridge, flats or dunes), and the
-time of day and weather set the sun height and dust.
+**Builds a set for each place.** The place's name and description pick one of ten sets, each
+built from signed-distance shapes (strata-cut cliffs, hoodoos, arches, crescent dunes,
+crawlers, tents, tarps, banners, bones) and seeded so it looks the same every visit:
 
-**Draws people as silhouettes.** Bodies are signed distance fields: head, torso, limbs,
-and an outfit inferred from what the world says about each person. Guards get helmets,
-Keth get hoods and cloaks, carriers get packs and wide hats, and reeves and clerks get
-long coats. People walk with a stride, face where they're going, and turn toward whoever
-they're talking to. A blade is drawn only for you, or for a guard by trade, so the
-viewer never reveals a hidden weapon.
+| Set | What's there |
+| --- | --- |
+| Hold | a hall cut away like a stage: pillars, rafters, a cracked cistern, the map table, sun through the windows |
+| Yard | crenellated walls, a gatehouse with banners, the ring scratched in the sand, an awning, a rack of blades |
+| Road | salt ruts between the Scar and the glass, waystones, cairns, a dead crawler, a dust devil |
+| Landing | a parked Guild crawler, casks under a tarp, the tally post, tents, a fire after dark |
+| Flats | cracked black glass, red dunes walking across it, ember veins that glow and spark |
+| Ridge | a plateau above the glass: cliffs, hoodoos, Nico's perch, Keth cloths, the Hold far off in its gap |
+| Deepwell | a cavern lit by one shaft: the black pool, the drip into a stone cup, cups on cords, a cookfire |
+| Bone Field | a crawler on its side, broken across the back, giant ribs, things glinting in the wreck |
+| Deep | under the dunes: a sand pour, slow coils with pale pits, a ringed mouth |
+| Dunes | the fallback for anywhere else |
+
+**Lights it by the hour.** The world's time of day, light and weather words set the sun,
+sky, fog and contrast: a low hazy dawn, a white noon, a red dusk, moonlit nights where fires,
+braziers and crawler lamps come on. On top of that there are shafts of light and god rays,
+heat shimmer off the glass, dust motes and dust devils, birds circling a wreck, and flames
+that flicker the light around them. Caves are lit only by their shaft and their fires.
+
+**Directs the people.** It reads each person's role, template, state and description to decide
+what they're doing, then puts them where that makes sense in the set:
+- A lookout with eyes on the Hold stands at the edge and watches it, gaze drifting.
+- Someone described as cross-legged sits on the rock; an elder by the drip sits by the cup.
+- A guard in the yard drills with a practice blade or walks the wall.
+- A carrier with a ledger works her rounds between the casks and the tally post.
+- A water-bearer walks with her yoke and jars.
+- The restless pace; captains stand with arms crossed; the downed lie where they fell.
+- When two people talk, they close the distance and turn to face each other.
+
+Nothing here needs an AI model or a key: the director is a small set of rules, so it adds no
+delay and costs nothing to run.
+
+**Draws people as silhouettes.** Bodies are signed distance fields with an outfit inferred from
+what the world says about each person: guards get helmets, Keth get hoods and cloaks, carriers
+get packs and wide hats, elders stoop, and reeves and clerks get long coats. There are poses
+(standing, sitting cross-legged, kneeling, lying) and props (a spyglass, a ledger, a water
+yoke, a staff). People walk with a stride, face where they're going, and gesture as they talk.
+A blade is drawn only for you, or for a guard by trade, so the viewer never reveals a hidden
+weapon.
+
+**Renders in three passes.** WebGL2 throughout. The first pass raymarches the set (ground,
+cave, every group of shapes whose bound is close enough to matter) into two render targets at
+about two texels per character cell. The second composes light, fog, rays, glow and dust. The
+third draws the result at full resolution as halftone dots or ASCII glyphs. Every loop shares
+one scene function, which keeps the shader compile to about two seconds on ANGLE.
 
 **Takes plain English.** The command bar takes commands or ordinary sentences, and shows
 how it read your line before you press Enter:
@@ -101,7 +142,15 @@ page, so it adds no delay. Its flavour is tuned to The Glass Reach.
 
 - `server.mjs`: the bridge. An MCP client over streamable HTTP and an SSE push to the page.
   No dependencies.
-- `public/index.html`: the whole client (renderer, HUD, command parser, narrator) in one file.
+- `public/world.js`: the renderer. Shaders, shapes, the ten sets, the director, motion,
+  camera and light.
+- `public/state.js`: shared state and small helpers.
+- `public/index.html`: the page. HUD, picking, the command parser, the narrator and the
+  network.
+
+The sets and the director are tuned to The Glass Reach, but they key off ordinary words
+(hold, yard, road, landing, ridge, flats, cave, wreck, scout, guard, carrier, elder…), so
+other worlds get sensible sets too.
 
 ## Credits
 
