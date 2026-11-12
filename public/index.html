@@ -485,7 +485,7 @@ function logLine(text, cls, n, detail) {
 }
 
 // bookkeeping the engine records but a player does not need to see
-const QUIET = new Set(['opinion', 'patched', 'cursor', 'tick', 'scheduled', 'unscheduled', 'timer', 'remembered', 'intended']);
+const QUIET = new Set(['opinion', 'patched', 'cursor', 'tick', 'scheduled', 'unscheduled', 'timer', 'remembered', 'intended', 'mended', 'sweated']);
 
 function ingestEvents(events, source) {
   const sorted = [...events].sort((a, b) => a.seq - b.seq);
@@ -603,7 +603,7 @@ function renderSayTo() {
 }
 
 // ---------- action tray
-const FORM_VERBS = new Set(['talk', 'parley', 'give', 'show', 'check']);
+const FORM_VERBS = new Set(['talk', 'parley', 'give', 'show', 'check', 'put', 'write', 'drive', 'consult', 'leave_word', 'supply', 'work', 'hire']);
 function needsForm(a) {
   const keys = Object.keys(a.params || {});
   if (!keys.length) return false;
@@ -684,8 +684,17 @@ function renderForm() {
       const opts = String(doc).split(',').map((s) => s.trim()).filter(Boolean);
       return `<label>${esc(k)}<select name="skill"><option value="">(none)</option>${opts.map((o) => `<option>${esc(o)}</option>`).join('')}</select></label>`;
     }
+    if (k === 'question') {
+      const opts = String(doc).split(/,|\bor\b/).map((s) => s.trim()).filter(Boolean);
+      return `<label>${esc(k)}<select name="question">${opts.map((o) => `<option>${esc(o)}</option>`).join('')}</select></label>`;
+    }
+    if (k === 'to') {
+      const places = [...new Set([...(S.state?.exits || []).map((x) => x.name), ...(S.state?.known_places || []).map((p) => p.name)])];
+      return `<label>to <input type="text" name="to" placeholder="${esc(doc)}" list="toPlaces"><datalist id="toPlaces">${places.map((n) => `<option value="${esc(n)}">`).join('')}</datalist></label>`;
+    }
     if (k === 'slow') return `<label class="cb"><input type="checkbox" name="slow"> ${esc(doc)}</label>`;
     if (k === 'dc') return `<label>${esc(k)}<input type="number" name="dc" placeholder="12" min="1" max="40"></label>`;
+    if (k === 'count') return `<label>${esc(k)}<input type="number" name="count" placeholder="all" min="1"></label>`;
     return `<label>${esc(k)} <input type="text" name="${esc(k)}" placeholder="${esc(doc)}"></label>`;
   });
   f.innerHTML = `<div class="fh">${esc(a.verb)}${a.target_name ? ' · ' + esc(a.target_name) : ''}</div>${fields.join('')}<div class="row"><button type="submit" class="verb">Do it ⏎</button><button type="button" class="verb" data-cancel>Cancel</button></div>`;
@@ -699,7 +708,7 @@ $('#trayForm').addEventListener('submit', (ev) => {
   const params = {};
   for (const el of ev.target.querySelectorAll('[name]')) {
     if (el.type === 'checkbox') { if (el.checked) params[el.name] = true; }
-    else if (el.value !== '') params[el.name] = el.type === 'number' ? Number(el.value) : el.value;
+    else if (el.value !== '') params[el.name] = el.type === 'number' ? Number(el.value) : el.name === 'to' ? placeParam(el.value) : el.value;
   }
   S.form = null;
   renderForm();
@@ -815,10 +824,93 @@ const Story = (() => {
     fight: ['Steel moved between {a} and {t}, quick as a lie.', 'Violence, brief and graceless. {a} and {t} parted with less than they began with.'],
     down: ['{a} went down onto the sand, and the sand did not care.'],
     dead: ['{a} died. Somewhere, a measure of water was reckoned against the living.'],
+
+    // ---- rest and hurt
+    sleep: [
+      '{me} lay down out of the wind and let the body have its way. *A sleeper owns nothing but the goodwill of whoever stays awake.*',
+      '{me} slept, one arm across the eyes. The water in the body went on keeping its slow accounts without {me}.',
+    ],
+    wake: [
+      '{me} put a hand on {t}’s shoulder and said the name once, low. The eyes opened already wary.',
+      '{me} shook {t} awake. *Wake no one carelessly in the Reach. They remember whose face hung over them.*',
+    ],
+    wakeSelf: ['{me} came up out of sleep all at once, as the desert teaches: no drifting, no warm half-dream. Eyes first, then hands.'],
+    tend: [
+      '{me} knelt by {t} and washed the wound, spending the water as if it were blood, which out here it was.{r}',
+      '{me} bound {t}’s hurt in quick, close turns of cloth. *A body is a cistern. Mend the crack before it empties.*{r}',
+    ],
+    tendSelf: ['{me} saw to the wound alone, the cloth pulled tight between one hand and the teeth.{r}'],
+    tendFail: ['The binding slipped under {me}’s fingers, and the water meant for the wound ran into the sand. The sand gave none of it back.'],
+    // ---- paper, fire and water (burn and write bring a scene of their own; these lines sit beside it)
+    burn: [
+      '*Paper is a promise,* {me} thought, watching the edge go brown. *Ash keeps none.*',
+      '{me} watched the words blacken and lift away as smoke. *Those who read it still carry it. Remember who they are.*',
+    ],
+    write: [
+      '{me} wrote small and close, to spare the leaf: *“{q}”*',
+      '{me} set the words down plainly, as if someone might one day hang by them: *“{q}”*',
+    ],
+    sign: ['{me} signed it. *A name on paper is a hostage left behind.*'],
+    spoil: ['{me} set to work on {t}, slow and quiet. *To foul water in a dry country is to declare war without a word.*'],
+    free: ['{me} knelt to {t}’s knots and worked at them, listening past the rope for footsteps.'],
+    consult: ['{me} paid the shard and listened. The answer came flat and exact, a number with no pity in it: *“{d}”*'],
+    leave_word: ['{me} bent close to {t} and left word for {w}, quietly, the way water is hidden: where only the right hand will go looking.'],
+    put: ['{me} stowed {i} in {t}. *What is put away is only waiting for another hand.*'],
+    // ---- vehicles (each step of the road brings its own scene)
+    board: [
+      '{me} swung up into {t}. The iron of the rail was hot enough to remember the sun.',
+      '{me} climbed aboard {t} and found a place among the lashed casks.',
+    ],
+    alight: ['{me} dropped down from {t}, knees taking the jolt. For a moment the ground felt too still to trust.'],
+    drive: [
+      '{me} took the wheel and set {t} for {to}. *The road does not care whose hands are on it. Only where it ends.*',
+      '{me} put {t} to the road for {to}, and felt the whole weight of it answer the hands.',
+    ],
+    halt: ['{me} stepped into the road before {t}, one hand raised, and did not move.'],
+    haltDrive: ['{me} hauled {t} up short. The dust of its going caught up with it and passed on.'],
+    haltFail: ['{t} did not stop for {me}. It went by close enough to taste the grit off its wheels.'],
+    repair: ['{me} got down under {t} with what tools there were. *Iron fails honestly: exactly where it was weak.*'],
+    strike: ['{me} struck {t}. Iron answered iron, and the sound went out across the sand and did not come back.'],
+    strikeNone: ['{me} struck {t}, and the blow rang off it like a word off a deaf man.'],
+    refuel: ['{me} fed {t} what it runs on. *Everything that moves out here is drinking something.*'],
+    // ---- locks
+    pick: ['{me} bent to {t} with patient fingers, listening for the small iron voice inside it.'],
+    break: ['{me} set a shoulder to {t} and drove. *Loud is a choice. Make it once, and make it count.*'],
+    lock: ['{me} turned {t} and heard it catch. *A lock asks one question: who holds the key.*'],
+    unlock: ['{me} turned {t} with the key, and it gave.'],
+    unlockCode: ['{me} turned the tumblers of {t} to the word and felt it give. *A secret keeps only until it is useful to someone.*'],
+    // ---- glass, stone and the wall
+    harvest: ['{me} knelt at {t} and dug, quick and shallow. *The sand hears every blow. Count them.*'],
+    dress: ['{me} set the chisel to {t}. The ring of it climbed the wall and went out over the yard.'],
+    work: ['{me} took a {role}’s place at the works and bent to it. *Walls are only patience, stacked.*'],
+    supply: ['{me} handed {i} into the works.'],
+    build: ['{me} began the works. *Every wall is an argument. The question is who will stand on which side of it.*'],
+    hire: ['{me} hired {w} for the works{role2}.'],
+    study: ['{me} bent over {t} and read it line by line. {d}'],
+    survey: ['{me} walked the works end to end and took their measure. {d}'],
+    smoke: ['{me} held the smudge up under {t} and let the smoke do the arguing.'],
   };
 
+  // Other people's deeds, and the late outcomes of your own (a lock that gives ten minutes after you began).
+  // Kinds the world narrates with a `scene` of its own are left to that scene.
+  const SCENED = new Set(['departed', 'passing', 'approaching', 'pulled_in', 'stopped', 'broke_down', 'burned', 'wrote',
+    'consulted', 'freed', 'free_failed', 'spoiled', 'spoil_failed', 'pick_failed', 'lock_broken', 'smoked', 'word_left']);
+  let rideAt = null; // boarding also sends an `arrived`; one line is enough
+  const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  const numWord = (n) => NUMW[n] || String(n);
+  // "three shards of Emberglass", "a shard of Emberglass", or the name alone
+  const pieces = (name, n) => {
+    const glass = /glass$/i.test(name);
+    if (n > 1) return `${numWord(n)} ${glass ? `shards of ${name}` : name}`;
+    return n === 1 && glass ? `a shard of ${name}` : name;
+  };
+  const thingName = (id, alt) => (id && S.names.has(id) ? nm(id) : alt);
+
   const pick = (arr, seed) => arr[hashStr(`${seed}|${salt++}`) % arr.length];
-  const fill = (tpl, v) => tpl.replace(/\{(\w+)\}/g, (m, k) => (v[k] ?? '')).replace(/\s+/g, ' ').replace(/\s([.,:;])/g, '$1').trim();
+  const fill = (tpl, v) => tpl.replace(/\{(\w+)\}/g, (m, k) => (v[k] ?? '')).replace(/\s+/g, ' ').replace(/\s([.,:;])/g, '$1').trim()
+    .replace(/^[a-z]/, (c) => c.toUpperCase());
+  // "The strongbox lock" reads as "the strongbox lock" mid-sentence (fill puts the capital back at the start)
+  const art = (s) => String(s ?? '').replace(/^(The|A|An)\s/, (m) => m.toLowerCase());
   const me = () => firstName();
   const list = (a) => (a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`);
   const unquote = (s) => String(s || '').trim().replace(/^['"“‘]+|['"”’]+$/g, '').trim();
@@ -875,6 +967,105 @@ const Story = (() => {
     if (performance.now() - lastAt > 30000 && !paras.some((p) => p.shown < p.total)) el.classList.remove('show');
   }, 2000);
 
+  // which telling of your own deed fits what the world answered
+  function variant(verb, target, params, evs, res) {
+    const mine = (k) => evs.find((e) => e.kind === k && e.actor === S.youId);
+    if (verb === 'wake' && (!target || target === S.youId)) return 'wakeSelf';
+    if (verb === 'tend') {
+      if (res.success === false || mine('tended')?.payload?.success === false) return 'tendFail';
+      return target === S.youId ? 'tendSelf' : 'tend';
+    }
+    if (verb === 'halt') return mine('halt_failed') ? 'haltFail' : evs.some((e) => e.kind === 'stopped' && e.payload?.why === 'pulled up') ? 'haltDrive' : 'halt';
+    if (verb === 'strike') return res.damage === 0 ? 'strikeNone' : 'strike';
+    if (verb === 'unlock' && params?.code != null) return 'unlockCode';
+    if (verb === 'write' && params?.text && params.text === nm(S.youId)) return 'sign';
+    return verb;
+  }
+
+  // the late outcome of something you began earlier (a lock, a repair, a shard), or a follower riding with you
+  function own(e, p) {
+    const v = { me: me(), t: art(nm(e.target)), w: p.who ? nm(p.who) : '', l: art(thingName(p.lock, 'the lock')) };
+    const say = (arr, tail = '') => push(fill(pick(arr, e.seq), v) + tail);
+    switch (e.kind) {
+      case 'lock_picked': return say(['{l} gave under {me}’s fingers with a small, final click.']);
+      case 'break_failed': return say(['{l} held. Everyone within a long walk had heard {me} try it.']);
+      case 'repaired': return say(['{t} coughed, shuddered and ran again under {me}’s hands.']);
+      case 'harvested': return say(['A shard came free in {me}’s hand, warm even through the cloth.'], p.left === 0 ? ' The vein was picked clean.' : '');
+      case 'dressed': return say(['The block came square under {me}’s chisel, and the stone dust settled on everything.']);
+      case 'rose': if (p.by === 'rest') say(['{me} got up. The body had kept its own slow accounts and decided it could stand.']); return;
+      case 'woke': if (p.why === 'thirst') say(['{me} woke with a mouth full of dust. *Water first. Everything else after.*']); return;
+      case 'boarded': case 'alighted':
+        if (!p.who || p.who === S.youId) return;
+        rideAt = { who: p.who, seq: e.seq };
+        return say(e.kind === 'boarded' ? ['{w} climbed in after {me}.'] : ['{w} dropped down after {me}.']);
+    }
+  }
+
+  // other people's deeds, one terse line each; null leaves the kind to the old branches (or to silence)
+  function others(e, p) {
+    const toMe = e.target === S.youId;
+    const who = (id) => (id === S.youId ? me() : art(nm(id)));
+    const v = {
+      me: me(), a: who(e.actor), t: who(e.target), b: p.by ? who(p.by) : who(e.actor), w: p.who ? who(p.who) : who(e.actor),
+      i: pieces(art(thingName(p.item, thingName(p.source, p.name || 'something'))), p.count), l: art(thingName(p.lock, 'the lock')),
+      n: art(p.name || 'something'), role: p.role || 'hand',
+    };
+    const say = (arr, tail = '') => fill(pick(arr, e.seq), v) + tail;
+    switch (e.kind) {
+      case 'slept':
+        return say(['{a} lay down and slept, there in the open. *Either very trusting or very tired,* {me} thought.', '{a} curled on the ground and was gone into sleep within a few breaths.']);
+      case 'woke':
+        if (toMe) {
+          if (p.why === 'woken') return say(['A hand on the shoulder, a name said low: {b}. {me} was awake all at once, the way the desert teaches.']);
+          if (p.why === 'thirst') return say(['{me} woke with a mouth full of dust. *Water first. Everything else after.*']);
+          return say(['{me} came awake all at once, already listening for whatever had done it.']);
+        }
+        if (p.why === 'woken') return say(['{b} shook {t} awake.']);
+        if (p.why === 'thirst') return say(['{t} woke dry-mouthed and reached for water before anything else.']);
+        if (p.why === 'rested' || p.why === 'rose') return say(['{t} woke and lay still a moment, counting what had changed, before sitting up.']);
+        return say(['{t} started awake.']);
+      case 'tended':
+        if (toMe) return say(['{b} saw to {me}’s wound with quick, sure hands, and spent water on it without a word.']);
+        if (p.success === false) return say(['{b} worked at {t}’s wound, and the binding slipped. The water ran into the sand all the same.']);
+        return say(['{b} knelt by {t} and bound the wound, sparing nothing, not even water.']);
+      case 'rose':
+        return toMe ? say(['{me} stood. The ground swayed once, then held.']) : say(['{t} got to their feet again, slowly, like a debt being paid back.']);
+      case 'put': return say(['{a} stowed {i} in {t}.']);
+      case 'taken': return say(['{a} took {i}. *Note who carries what,* {me} thought.', '{a} took {i} without asking anyone.']);
+      case 'given':
+        return toMe ? say(['{a} put {i} into {me}’s hands and watched to see how it was received.']) : say(['{a} handed {i} to {t}.']);
+      case 'dropped': return say(['{a} let {i} fall to the ground.']);
+      case 'shown': return toMe ? say(['{a} held up {n} for {me} to see, watching the face rather than the thing.']) : say(['{a} showed {n} to {t}.']);
+      case 'following': return toMe ? say(['{a} fell in behind {me}, close enough to hear the breathing.']) : say(['{a} fell in behind {t}.']);
+      case 'stayed': return p.was_following === S.youId ? say(['{a} stopped following and let {me} go on alone.']) : null;
+      // vehicles: who climbs on and off, who tries to stop it, who works on it
+      case 'boarded': case 'alighted': {
+        const rider = p.who || e.actor;
+        rideAt = { who: rider, seq: e.seq };
+        if (rider === S.youId) return say(e.kind === 'boarded' ? ['{me} climbed in after {a}.'] : ['{me} dropped down after {a}.']);
+        if (e.kind === 'boarded') return say(['{w} climbed aboard {t}.', '{w} swung up into {t}.'], p.moving ? ' It did not stop to make it easy.' : '');
+        return say(['{w} dropped down from {t}.', '{w} climbed down out of {t} and stood a moment, getting the ground back.'], p.moving ? ' It rolled on without them.' : '');
+      }
+      case 'halt_failed': return say(['{a} stepped into the road of {t}, and it did not stop. A scramble, and a body thrown clear of the wheels.']);
+      case 'repairing': return say(['{a} got down under {t} with tools and a set jaw.']);
+      case 'repaired': return say(['{t} shuddered, coughed and ran again. {a} wiped their hands and said nothing.']);
+      case 'struck': return say(['{a} struck {t}, iron on iron; the sound went out across the sand.', '{a} laid into {t}. Something in it rang and did not stop ringing.']);
+      case 'refuelled': return say(['{a} fed {t} what it runs on.']);
+      // locks: what they keep shut is the target, the lock is named in the payload
+      case 'unlocked': return say(['{a} turned {l}' + (p.how === 'code' ? ' through its tumblers' : p.how === 'key' ? ' with a key' : '') + ', and {t} stood open.']);
+      case 'locked': return say(['{a} locked {t}. The sound was small, and final.']);
+      case 'lock_picked': return say(['{a} worked at {l} with patient fingers until something inside it gave.']);
+      case 'break_failed': return say(['{a} threw their weight at {l}. It held, and the noise of it went everywhere.']);
+      // glass and stone
+      case 'harvesting': return say(['{a} knelt at {t} and began to dig, and the sand listened.']);
+      case 'harvested': return say(['{a} pried a shard of red glass out of {t}.'], p.left === 0 ? ' Nothing was left in it.' : '');
+      case 'dressing': return say(['{a} set a chisel to {t}; the ring of it carried.']);
+      case 'dressed': return say(['{a} squared a block out of {t} and set it aside.']);
+      case 'working': return say(['{a} took a {role}’s place at the works.']);
+    }
+    return null;
+  }
+
   return {
     setOn(v) { on = v; if (!v) el.classList.remove('show'); else if (paras.length) el.classList.add('show'); },
     get on() { return on; },
@@ -901,24 +1092,37 @@ const Story = (() => {
       push(fill(pick(T.say, text), { me: me(), q: unquote(text).replace(/[.,]$/, ''), to: to ? ` to ${nm(to)}` : '' }));
     },
     act(verb, target, params, r) {
-      const pool = T[verb];
+      const evs = r && Array.isArray(r.events) ? r.events : [];
+      const res = r && r.result && typeof r.result === 'object' ? r.result : {};
+      const key = variant(verb, target, params, evs, res);
+      const pool = T[key] || T[verb];
       const engine = r ? ((r.logs && r.logs.join(' ')) || (typeof r.result === 'string' ? r.result : '')) : '';
       if (!pool) { if (engine) push(engine); return; }
-      push(fill(pick(pool, verb + target), {
-        me: me(), t: target ? nm(target) : '', d: engine,
-        i: params?.item ? nm(params.item) : 'it',
+      const self = target === S.youId;
+      const n = params?.count != null ? +params.count : null;
+      const tn = target ? (self ? me() : art(nm(target))) : '';
+      push(fill(pick(pool, key + target), {
+        me: me(), t: verb === 'take' || verb === 'drop' ? pieces(tn, n) : tn, d: engine,
+        i: params?.item ? pieces(art(nm(params.item)), n) : 'it',
         a: params?.about ? ` about ${params.about}` : '',
         o: params?.offer || '',
         s: params?.slow ? ', the slow blade sliding for the gap in the ward' : '',
+        q: unquote(params?.text), to: params?.to || 'the road', w: params?.for || params?.who || 'whoever asks',
+        role: params?.role || 'hand', role2: params?.role ? ` as ${params.role}` : '',
+        r: res.rose ? (self ? ` ${me()} could stand again.` : ` ${tn} found their feet again.`) : '',
       }));
     },
     event(e) {
       const p = e.payload || {};
       // the world's own scene lines (a crawler at dawn, the bearer at dusk) are already prose
       if (e.kind === 'scene' && p.text) return push(String(p.text));
-      if (e.actor === S.youId) return; // your own deeds are told as you do them
+      if (SCENED.has(e.kind)) return;
+      if (e.actor === S.youId) return own(e, p); // your own deeds are told as you do them; only late outcomes here
       const a = nm(e.actor), t = nm(e.target);
       const toName = (id) => (id === S.youId ? me() : nm(id));
+      if (e.kind === 'arrived' && rideAt && rideAt.who === (p.who || e.actor) && e.seq - rideAt.seq <= 3) return;
+      const line = others(e, p);
+      if (line) return push(line);
       if (e.kind === 'say' && p.text) {
         const raw = String(p.text).trim();
         const to = p.to ? ` to ${toName(p.to)}` : '';
@@ -975,13 +1179,14 @@ async function doVerb(verb, target, params) {
   }
   const r = out.result || {};
   resolveCaption(cap, '', `${nm(S.youId)} › ${label}`);
+  // the deed is told before what it caused (an answer, a crawler pulling out, a lock that gives)
+  Story.act(verb, target, params, r);
   if (Array.isArray(r.events)) ingestEvents(r.events, 'act');
   const said = new Set();
   for (const l of r.logs || []) { said.add(l); logLine(l, 'narr'); }
   if (typeof r.result === 'string' && !said.has(r.result)) logLine(r.result, 'narr');
   const secs = r.duration > 0 ? r.duration / (S.rate || 1) : 0;
   S.activity.set(S.youId, { text: secs > 0.5 ? `${label} · ${Math.ceil(secs)}s` : label, until: performance.now() + Math.max(4000, secs * 1000) });
-  Story.act(verb, target, params, r);
   return r;
 }
 
@@ -1006,11 +1211,34 @@ const DEIX = new Set(['here', 'there', 'this', 'that', 'it', 'thing', 'them', 'h
 const PERSON_PRON = new Set(['them', 'him', 'her', 'they']);
 const KIND_WORDS = {
   well: ['water', 'well', 'cistern', 'cask', 'tank', 'source', 'spring', 'trough', 'basin'],
-  letter: ['letter', 'notice', 'note', 'writ', 'sign', 'paper', 'scroll', 'post', 'board', 'message', 'tally', 'ledger'],
+  letter: ['letter', 'notice', 'note', 'writ', 'sign', 'paper', 'scroll', 'post', 'board', 'message', 'tally', 'ledger', 'leaf', 'leaves', 'page', 'sheet', 'manifest'],
   blade: ['blade', 'sword', 'knife', 'weapon', 'dagger', 'steel'],
   skin: ['skin', 'waterskin', 'flask', 'bottle', 'canteen', 'bag'],
   ward: ['ward', 'belt', 'shield', 'plate', 'device'],
+  vehicle: ['crawler', 'hauler', 'cart', 'wagon', 'vehicle', 'truck', 'ride', 'machine', 'boat', 'barge', 'ferry', 'raft'],
+  wheel: ['wheel', 'reins', 'helm', 'controls'],
+  lock: ['lock', 'hasp', 'bolt', 'padlock', 'tumblers'],
+  box: ['box', 'chest', 'strongbox', 'cupboard', 'rack', 'crate', 'coffer', 'safe', 'locker', 'shelf'],
+  works: ['works', 'wall', 'site', 'project', 'building', 'course'],
+  plan: ['plan', 'chalk', 'line', 'blueprint', 'drawing'],
+  rubble: ['stone', 'rubble', 'block', 'pile', 'rock'],
+  wall: ['wall'],
+  vein: ['vein', 'seam'],
+  shard: ['shard', 'glass', 'emberglass', 'ember'],
+  lime: ['lime', 'sack', 'quicklime'],
+  smudge: ['smudge', 'glassthorn'],
+  stone: ['stone', 'block'],
 };
+// What else a thing answers to besides its name: the renderer's kind for it, and the world's own type and kind words.
+const TYPE_KIND = { vehicle: 'vehicle', wheel: 'wheel', lock: 'lock', blueprint: 'plan', project: 'works', rubble: 'rubble', letter: 'letter' };
+const STATE_KIND = { ember: 'shard', lime: 'lime', smudge: 'smudge', 'dressed stone': 'stone' };
+function kindWords(ent) {
+  const s = ent.state || {};
+  const kinds = [thingKind(ent), TYPE_KIND[ent.type], STATE_KIND[s.kind], s.holds ? 'box' : null, s.stops ? 'vehicle' : null];
+  return [...new Set(kinds.filter(Boolean))].flatMap((k) => KIND_WORDS[k] || []).concat(typeof s.kind === 'string' ? wordsOf(s.kind) : []);
+}
+const isNamed = (phrase) => wordsOf(phrase).some((w) => !STOP.has(w) && !DEIX.has(w));
+const singular = (w) => [w, w.replace(/s$/, ''), w.replace(/es$/, '')];
 const normT = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9'\s]+/g, ' ').replace(/\s+/g, ' ').trim();
 const wordsOf = (s) => normT(s).split(' ').filter(Boolean);
 const firstName = () => String(nm(S.youId) || 'You').split(/\s+/)[0];
@@ -1045,14 +1273,85 @@ function scoreRef(c, phrase) {
   if (sc) return sc + (c.kind === 'held' ? 0.05 : 0);
   const pw = wordsOf(phrase).filter((w) => !STOP.has(w) && !DEIX.has(w));
   if (!pw.length || !c.ent) return 0;
-  if (c.kind === 'thing' || c.kind === 'held') {
-    const kw = KIND_WORDS[thingKind(c.ent)] || [];
-    if (pw.every((w) => kw.includes(w) || kw.includes(w.replace(/s$/, '')))) return 1.2;
+  if (c.kind !== 'person' && c.kind !== 'exit' && c.kind !== 'place') {
+    const kw = kindWords(c.ent);
+    if (pw.every((w) => singular(w).some((x) => kw.includes(x)))) return 1.2;
   }
   const s = c.ent.state || {};
   const desc = wordsOf([s.description, s.role, s.template].filter(Boolean).join(' ')).map((x) => x.replace(/'s$/, ''));
-  if (pw.every((w) => desc.some((x) => x.startsWith(w)))) return 0.9;
+  if (pw.every((w) => desc.some((x) => x.startsWith(w) || (w.length > 4 && x === w.replace(/s$/, ''))))) return 0.9;
   return 0;
+}
+
+// "three shards" → 3 and "shards"; "a shard" → 1, but only for a stack; "all the glass" → the whole of it
+const NUMS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, couple: 2, pair: 2, dozen: 12 };
+function countOf(phrase) {
+  const p = String(phrase || '').trim();
+  const lead = '^(?:(?:the|my|your|those|these)\\s+)?';
+  let m = p.match(new RegExp(`${lead}(\\d{1,4})\\s+(?:of\\s+(?:the\\s+|my\\s+)?)?(.+)$`));
+  if (m) return { n: +m[1], rest: m[2] };
+  m = p.match(new RegExp(`${lead}(?:a\\s+)?(${Object.keys(NUMS).join('|')})\\s+(?:of\\s+(?:the\\s+|my\\s+)?)?(.+)$`));
+  if (m) return { n: NUMS[m[1]], rest: m[2] };
+  m = p.match(/^(?:a|an|a single)\s+(.+)$/);
+  if (m) return { n: 1, soft: true, rest: m[1] };
+  m = p.match(/^(?:all|every|each)\s+(?:of\s+)?(.+)$/);
+  return { n: null, rest: m ? m[1] : p };
+}
+// The count to send for a thing: only a stack is counted (a known non-stack never is), and "a" counts only a stack.
+function stackCount(ref, cq) {
+  if (cq.n == null || !ref) return null;
+  const st = ref.ent && ref.ent.state;
+  if (st) return st.count != null ? cq.n : null;
+  return cq.soft ? null : cq.n;
+}
+
+// A place for a param ("drive to the Landing"): its exact name when we know it, else the words less the article.
+function placeParam(phrase) {
+  const p = String(phrase || '').trim();
+  if (!p) return '';
+  const ref = S.state ? resolveRef(p, ['exit', 'place'], { last: null, lastPerson: null }) : null;
+  return ref && ref.name ? ref.name : p.replace(/^(?:the|a|an)\s+/i, '');
+}
+
+// What a verb can be done to right now, read off the affordances: "pick the lock" finds the lock on offer to pick,
+// "board the crawler" the vehicle alongside. The phrase names one, or (no name) it is the one selected or just
+// mentioned, or the only one on offer. mode 'named': a name that matches nothing is nothing; 'loose': it may still
+// be the only thing on offer; 'any': the first on offer will do (a wheel and its vehicle drive the same).
+function affFor(verb, phrase, ctx, mode = 'named') {
+  const all = (S.state.affordances || []).filter((a) => a.verb === verb && a.target);
+  if (!all.length) return null;
+  const tier = (a) => (a.ok ? 2 : /say what|params/i.test(a.reason || '') ? 1 : 0);
+  const cands = refCandidates(), here = S.state.here;
+  const candOf = (a) => cands.find((c) => c.id === a.target) ||
+    (here && a.target === here.id ? { id: here.id, name: here.name, kind: 'here', ent: here } : { id: a.target, name: a.target_name || nm(a.target), kind: 'thing' });
+  const named = isNamed(phrase);
+  if (named) {
+    let best = null, bs = 0;
+    for (const a of all) {
+      const c = candOf(a), s = scoreRef(c, phrase);
+      if (s > 0 && s + tier(a) * 0.01 > bs) { bs = s + tier(a) * 0.01; best = c; }
+    }
+    if (best) return best;
+  } else if (wordsOf(phrase).length || S.sel) {
+    const r = resolveRef(phrase || 'it', null, ctx);
+    if (r && r.id && all.some((a) => a.target === r.id)) return r;
+  }
+  const top = Math.max(...all.map(tier));
+  const ids = [...new Set(all.filter((a) => tier(a) === top).map((a) => a.target))];
+  if (mode === 'any' || (ids.length === 1 && (!named || mode === 'loose'))) return candOf(all.find((a) => a.target === ids[0]));
+  return null;
+}
+// "feed the hauler three pots of pitch": the longest leading words that name a target of the verb, and the rest
+function leadingAff(verb, phrase, ctx) {
+  const w = phrase.split(' ').filter(Boolean);
+  for (let n = w.length; n >= 1; n--) {
+    const head = w.slice(0, n).join(' ');
+    if (!isNamed(head)) continue;
+    const ref = affFor(verb, head, ctx, 'named');
+    if (ref) return { ref, rest: w.slice(n).join(' ') };
+  }
+  return null;
 }
 
 // want: list of kinds that fit (person, thing, held, exit, place, spot) or null for any
@@ -1113,13 +1412,42 @@ const lemma = (verb, list) => list.split(' ').forEach((f) => (LEMMA[f] = verb));
 lemma('go', 'go goes going went walk walks walking head heads move moves run runs step steps travel travels return returns enter enters wander wanders stroll strolls approach approaches come comes leave leaves hurry hurries cross crosses');
 lemma('creep', 'creep creeps sneak sneaks tiptoe tiptoes slip slips skulk prowl');
 lemma('crawl', 'crawl crawls drag drags');
-lemma('look', 'check checks look looks examine examines inspect inspects study studies observe observes peer peers eye eyes scan scans glance glances investigate investigates');
+lemma('look', 'check checks look looks examine examines inspect inspects study studies observe observes peer peers eye eyes scan scans glance glances investigate investigates survey surveys');
 lemma('read', 'read reads peruse');
 lemma('watch', 'watch watches scout scouts spy');
 lemma('drink', 'drink drinks sip sips gulp gulps swig swigs quench');
 lemma('fill', 'fill fills refill refills top');
-lemma('take', 'take takes grab grabs pick picks get gets collect collects snatch pocket');
-lemma('drop', 'drop drops put puts set sets place discard');
+lemma('take', 'take takes grab grabs get gets collect collects snatch pocket');
+lemma('pick', 'pick picks');   // "pick the lock", or "pick up the skin" (take)
+lemma('drop', 'drop drops discard discards dump dumps');
+lemma('put', 'put puts set sets place places stow stows stash stashes store stores tuck tucks');
+lemma('lay', 'lay lays');      // "lay stone" on the wall works, else put
+lemma('sleep', 'sleep sleeps nap naps doze dozes slumber');
+lemma('wake', 'wake wakes waken wakens awaken awakens rouse rouses');
+lemma('tend', 'tend tends heal heals treat treats bandage bandages bind binds nurse nurses doctor');
+lemma('burn', 'burn burns torch torches incinerate');
+lemma('consult', 'consult consults reckon');
+lemma('free', 'free frees untie unties unbind unbinds release releases loose loosen');
+lemma('spoil', 'spoil spoils foul fouls poison poisons taint taints sabotage sabotages ruin ruins');
+lemma('write', 'write writes scrawl scrawls scribble scribbles jot jots pen inscribe inscribes');
+lemma('sign', 'sign signs');
+lemma('leave_word', 'leave_word');
+lemma('unlock', 'unlock unlocks open opens');
+lemma('lock', 'lock locks bolt bolts secure');
+lemma('break', 'break breaks force forces smash smashes bash prise prize pry jimmy batter');
+lemma('board', 'board boards embark embarks mount mounts');
+lemma('alight', 'alight alights disembark disembarks dismount dismounts deboard');
+lemma('drive', 'drive drives steer steers');
+lemma('ride', 'ride rides');
+lemma('repair', 'repair repairs fix fixes mend mends patch');
+lemma('refuel', 'refuel refuels fuel fuels feed feeds stoke');
+lemma('harvest', 'harvest harvests dig digs mine mines excavate');
+lemma('dress', 'dress dresses square squares chisel chisels hew hews quarry');
+lemma('work', 'work works labour labor toil');
+lemma('supply', 'supply supplies');
+lemma('build', 'build builds construct');
+lemma('hire', 'hire hires employ');
+lemma('smoke', 'smoke smokes fumigate');
 lemma('give', 'give gives hand hands pass passes');
 lemma('show', 'show shows present presents flash');
 lemma('talk', 'talk talks speak speaks chat chats ask asks tell tells discuss discusses question confer');
@@ -1131,14 +1459,42 @@ lemma('challenge', 'challenge challenges duel');
 lemma('yield', 'yield yields surrender');
 lemma('brace', 'brace braces guard defend parry block');
 lemma('follow', 'follow follows tail accompany');
-lemma('stay', 'stay stays halt stop remain');
+lemma('stay', 'stay stays remain remains');
+lemma('halt', 'halt halts stop stops');   // a vehicle on the move, else stop following
 lemma('parley', 'parley negotiate bargain haggle trade barter deal offer');
 lemma('toggle', 'toggle switch flip activate deactivate turn');
 lemma('search', 'search searches loot frisk rummage');
 
+// Phrases whose verb is not their first word. A capture group, when there is one, is the object.
+const IDIOMS = [
+  [/^(?:lie|lay|bed|settle|curl)\s+(?:myself\s+|ourselves\s+)?(?:down|up)\b(?:\s+(?:to|and)\s+(?:sleep|rest|nap|doze))?/, 'sleep'],
+  [/^(?:go|get|head|retire)\s+(?:back\s+)?to\s+(?:sleep|bed)\b/, 'sleep'],
+  [/^(?:get|take|grab|catch|have)\s+(?:some\s+|a\s+|a\s+little\s+)?(?:sleep|rest|nap|kip|shut-?eye)\b/, 'sleep'],
+  [/^(?:turn\s+in|nod\s+off|drift\s+off|doze\s+off|fall\s+asleep)\b/, 'sleep'],
+  [/^get\s+up$/, 'wake'],
+  [/^(?:shake|nudge)\s+(.+?)\s+(?:awake|up)$/, 'wake'],
+  [/^(?:get|climb|hop|jump|clamber|swing)\s+(?:back\s+)?(?:on|in|into|onto|aboard|up\s+(?:on|into|onto))\b/, 'board'],
+  [/^(?:get|climb|hop|jump|step|clamber|swing)\s+(?:off|out|down)\b(?:\s+of\b)?/, 'alight'],
+  [/^(?:pull|draw)\s+up\b/, 'halt'],
+  [/^set\s+(?:off|out)\b/, 'go'],
+  [/^set\s+fire\s+to\b/, 'burn'],
+  [/^set\s+(.+?)\s+(?:on\s+fire|alight|ablaze|burning)$/, 'burn'],
+  [/^(?:throw|toss|feed|put|drop|cast|hold|set|place|lay)\s+(.+?)\s+(?:in|into|on|onto|to|over)\s+(?:the\s+)?(?:fire|flames?|hearth|brazier|coals|embers|lamp|candle)$/, 'burn'],
+  [/^(?:cut|set)\s+(.+?)\s+(?:loose|free)$/, 'free'],
+  [/^cut\s+(?:the\s+)?(?:ropes?|bonds?|knots?|cords?|bindings?)\s+(?:on|of|binding|holding|off|from)\b/, 'free'],
+  [/^(?:see|attend)\s+to\b/, 'tend'],
+  [/^patch\s+up\b/, 'tend'],
+  [/^patch\s+(.+?)\s+up$/, 'tend'],
+  [/^leave\s+(?:a\s+|my\s+|some\s+|the\s+)?(?:word|message|note)\b/, 'leave_word'],
+  [/^fuel\s+(?:it\s+|her\s+|him\s+)?up\b/, 'refuel'],
+];
+
 function splitClauses(text) {
   const quotes = [];
-  let s = text.replace(/["“”]([^"“”]*)["“”]?/g, (m, q) => { quotes.push(q.trim()); return ` qq${quotes.length - 1}qq `; });
+  const keep = (q) => { quotes.push(q.trim()); return ` qq${quotes.length - 1}qq `; };
+  // "double" quotes anywhere; 'single' ones only where they open after a space (so the reeve's wound stays a word)
+  let s = text.replace(/["“”]([^"“”]*)["“”]?/g, (m, q) => keep(q))
+    .replace(/(^|[\s(])['‘]([^'‘’]+?)['’](?=$|[\s.,!?;:)])/g, (m, pre, q) => pre + keep(q));
   const parts = s
     .split(/\s*(?:,\s*(?:and\s+|then\s+)?|;|\.\s+|\band then\b|\bthen\b|\band\b)\s*/i)
     .map((x) => x.trim().replace(/[.!?]+$/, ''))
@@ -1160,15 +1516,26 @@ function parseClause(part, quotes) {
       if (/'m|am|'re|are/.test(w)) be = true;
       return '';
     });
-    s = s.replace(/^(will|shall|then|also|just|now|finally|again|quickly|slowly|carefully|quietly|calmly|gently|immediately|cautiously|silently|stealthily|sneakily|softly|boldly|go and|going to|gonna|try to|tries to|attempt to|want to|need to|decide to|start to|begin to|to)\s+/, '');
+    s = s.replace(/^(will|shall|then|also|just|now|finally|again|quickly|slowly|carefully|quietly|calmly|gently|immediately|cautiously|silently|stealthily|sneakily|softly|boldly|go and|going to|gonna|try to|tries to|attempt to|want to|need to|decide to|start to|begin to|to)\s+/, (m, x) => {
+      if (x === 'going to' || x === 'gonna') be = false;   // "I'm going to sleep" is a deed, not a state
+      return '';
+    });
     if (s === before) break;
   }
   if (be && /^going\b/.test(s)) be = false;
   const w = s.split(' ').filter(Boolean);
-  let verb = be ? null : LEMMA[w[0]] || null;
-  const rest = verb ? w.slice(1).join(' ') : s;
+  let verb = null, rest = s;
+  if (!be) {
+    for (const [re, v] of IDIOMS) {
+      const m = s.match(re);
+      if (m) { verb = v; rest = [m[1], s.slice(m[0].length)].filter(Boolean).join(' ').trim(); break; }
+    }
+  }
+  if (!verb) { verb = be ? null : LEMMA[w[0]] || null; rest = verb ? w.slice(1).join(' ') : s; }
   if (!verb && !w.length && quote) verb = 'say';
-  return { verb, rest, quote, sneaky, subject, be, original: s };
+  // src keeps the writer's case and punctuation, for words that go into the world as written (a code, a note)
+  const src = part.replace(/qq\d+qq/g, ' ').replace(/\s+/g, ' ').trim();
+  return { verb, rest, quote, sneaky, subject, be, original: s, word: w[0] || '', src };
 }
 
 function emoteText(cl) {
@@ -1187,7 +1554,8 @@ function emoteText(cl) {
 
 function buildStep(cl, ctx) {
   const { verb, quote, sneaky } = cl;
-  const rest = cl.rest.replace(/^(?:(?:up|down|over|out|back|across|around|along|into|in|onto|to|toward|towards|at|on|through|inside|outside|off|from|with)\s+)+/, '').trim();
+  const rest = cl.rest.replace(/^(?:(?:up|down|over|out|back|across|around|along|into|in|onto|to|toward|towards|at|on|through|inside|outside|off|from|with)\s+)+/, '')
+    .replace(/\s+(?:slowly|carefully|quietly|silently|stealthily|sneakily|softly|cautiously|quickly|gently|calmly|now|again)$/, '').trim();
   const affs = S.state.affordances || [];
   const aff = (v, id) => affs.find((a) => a.verb === v && (a.target ?? null) === (id ?? null));
   const act = (v, ref, params) => {
@@ -1198,13 +1566,21 @@ function buildStep(cl, ctx) {
   };
   const keep = (ref) => { if (ref) { ctx.last = ref; if (ref.kind === 'person') ctx.lastPerson = ref; } return ref; };
   const fail = (msg) => ({ type: 'error', msg });
+  const has = (v) => affs.some((a) => a.verb === v && a.target);
+  const redo = (v, more) => buildStep({ ...cl, verb: v, ...(more || {}) }, ctx);
+  const youRef = () => ({ id: S.youId, name: nm(S.youId), kind: 'person' });
+  const here = S.state.here;
+  const aboard = has('alight');   // aboard a vehicle, here is the vehicle
 
   switch (verb) {
     case 'go': case 'creep': case 'crawl': {
       const v = verb === 'go' && sneaky ? 'creep' : verb;
       const exits = S.state.exits || [];
+      // aboard, "leave", "go out" or "leave the crawler" is climbing down; "go to the yard" is driving there
+      if (aboard && (cl.rest ? /^(?:away|out|off|outside|down|ashore)$/.test(rest) || (isNamed(rest) && scoreRef({ id: here.id, name: here.name, kind: 'here', ent: here }, rest) > 0) : cl.word === 'leave')) return redo('alight', { rest: '' });
       if (/^(away|out|off|outside)?$/.test(rest) && cl.rest && exits.length === 1) return act(v, keep({ kind: 'exit', id: exits[0].to, name: exits[0].name }));
       const ref = keep(resolveRef(rest || 'here', null, ctx));
+      if (aboard && has('drive') && isNamed(rest) && (!ref || ref.kind === 'place' || (ref.kind === 'exit' && !aff(v, ref.id)))) return redo('drive', { rest: 'to ' + rest });
       if (!ref) return fail(rest ? `There's no “${rest}” to go to from here.` : 'Where to? Click a spot or someone first.');
       if (ref.kind === 'exit' || ref.kind === 'place') return act(v, ref);
       if (ref.kind === 'held') return fail(`You're holding ${ref.name}.`);
@@ -1221,6 +1597,8 @@ function buildStep(cl, ctx) {
       if (ref.kind === 'place') return fail(`${ref.name} isn't next to here.`);
       if (ref.kind === 'spot') return { type: 'describe' };
       if (aff('read', ref.id)?.ok) return act('read', ref);
+      if (aff('study', ref.id)?.ok) return act('study', ref);     // a plan
+      if (aff('survey', ref.id)?.ok) return act('survey', ref);   // works under way
       return { type: 'inspect', ref };
     }
     case 'read': {
@@ -1248,13 +1626,39 @@ function buildStep(cl, ctx) {
       if (!ref) { const a = affs.find((x) => x.verb === 'fill' && x.ok); if (a) ref = { id: a.target, name: a.target_name, kind: 'held' }; }
       return ref ? act('fill', keep(ref)) : fail('There is nothing to fill here.');
     }
-    case 'take': case 'drop': case 'toggle': case 'search': case 'kill': case 'follow': case 'threaten': case 'challenge': case 'yield': {
-      const want = { take: ['thing'], drop: ['held'], toggle: ['held', 'thing'], search: ['person'], kill: ['person'], follow: ['person'], threaten: ['person'], challenge: ['person'], yield: ['person'] }[verb];
+    case 'take': case 'drop': {
+      // "take the crawler to the salt road" drives it; "take three shards" takes part of a stack
+      const tm = verb === 'take' && cl.rest.match(/^(.*?)\s+\bto\b\s+(.+)$/);
+      if (tm && affFor('drive', tm[1], ctx, 'named')) return redo('drive', { rest: cl.rest });
+      const phrase = rest.replace(/\s+(?:up|down|away)$/, '').replace(verb === 'take' ? /\s+(?:from|out of|off)\s+.*$/ : /$^/, '');
+      const cq = countOf(phrase);
+      let ref = resolveRef(cq.rest, verb === 'take' ? ['thing'] : ['held'], ctx);
+      if (!ref && verb === 'take') ref = affFor('take', cq.rest, ctx, 'named');   // off a rack, out of a box
+      if (!ref) return fail(phrase ? `There's no “${phrase}” to ${verb} here.` : `${verb === 'take' ? 'Take' : 'Drop'} what?`);
+      const n = stackCount(ref, cq);
+      return act(verb, keep(ref), n != null ? { count: n } : null);
+    }
+    case 'toggle': case 'search': case 'kill': case 'follow': case 'threaten': case 'challenge': case 'yield': {
+      const want = { toggle: ['held', 'thing'], search: ['person'], kill: ['person'], follow: ['person'], threaten: ['person'], challenge: ['person'], yield: ['person'] }[verb];
       const ref = keep(resolveRef(rest.replace(/^(?:on|off)\s+/, ''), want, ctx));
       return ref ? act(verb, ref) : fail(rest ? `There's no “${rest}” to ${verb} here.` : `${verb[0].toUpperCase() + verb.slice(1)} what?`);
     }
+    case 'pick': {
+      // "pick the lock" is the locks' verb; "pick up the skin", "pick a shard" are taking
+      const lockish = /\b(?:locks?|padlock|hasp|tumblers?)\b/.test(rest);
+      const ref = !/\bup\b/.test(cl.rest) && affFor('pick', rest, ctx, lockish ? 'loose' : 'named');
+      if (ref) return act('pick', keep(ref));
+      return lockish ? fail('There is no lock here to pick.') : redo('take');
+    }
     case 'attack': {
-      const ref = keep(resolveRef(rest.replace(/\b(?:with|using)\b.*$/, ''), ['person'], ctx));
+      const phrase = rest.replace(/\b(?:with|using)\b.*$/, '').trim();
+      const ref = keep(resolveRef(phrase, ['person'], ctx));
+      if (!ref && isNamed(phrase)) {
+        // "strike the crawler" is the vehicles' strike; "cut a block from the rubble" is dressing stone
+        const v = affFor('strike', phrase, ctx, 'named');
+        if (v) return act('strike', keep(v));
+        if (cl.word === 'cut' && /\b(?:stones?|blocks?|rubble)\b/.test(phrase)) return redo('dress');
+      }
       if (!ref) return fail(rest ? `There's no “${rest}” to attack here.` : 'Attack whom?');
       return act('attack', ref, sneaky || /\bslow\b/.test(rest) ? { slow: true } : null);
     }
@@ -1266,13 +1670,235 @@ function buildStep(cl, ctx) {
       if (m) { itemP = m[1]; whoP = m[2]; }
       else {
         const lead = leadingRef(rest, ['person'], ctx);
-        if (lead.ref && lead.rest && resolveRef(lead.rest, ['held'], ctx)) { whoP = rest.slice(0, rest.length - lead.rest.length).trim(); itemP = lead.rest; }
+        if (lead.ref && lead.rest && resolveRef(countOf(lead.rest).rest, ['held'], ctx)) { whoP = rest.slice(0, rest.length - lead.rest.length).trim(); itemP = lead.rest; }
       }
-      const item = resolveRef(itemP, ['held'], ctx);
+      const cq = verb === 'give' ? countOf(itemP) : { n: null, rest: itemP };
+      const item = resolveRef(cq.rest, ['held'], ctx);
       const who = keep(resolveRef(whoP || 'them', ['person'], ctx));
-      if (!item) return fail(`You aren't holding “${itemP}”.`);
+      if (!item) return fail(`You aren't holding “${cq.rest}”.`);
       if (!who) return fail(`${verb === 'give' ? 'Give' : 'Show'} it to whom? Click someone or name them.`);
-      return act(verb, who, { item: item.id });
+      const n = stackCount(item, cq);
+      return act(verb, who, n != null ? { item: item.id, count: n } : { item: item.id });
+    }
+    case 'put': {
+      // "put the shards in the strongbox"; "put the blade down" is dropping it; "put the letter in the fire", burning
+      const m = rest.match(/^(.*?)\s+\b(?:back\s+)?(?:in|into|inside|on|onto|upon|atop|under|beneath)\s+(.+)$/);
+      if (!m) return redo('drop');
+      if (/^(?:the\s+)?(?:fire|flames?|hearth|brazier|coals|embers)$/.test(m[2])) return redo('burn', { rest: m[1] });
+      const cq = countOf(m[1]);
+      const item = resolveRef(cq.rest, ['held'], ctx);
+      if (!item) return fail(`You aren't holding “${cq.rest}”.`);
+      const holder = affFor('put', m[2], ctx, 'named') || resolveRef(m[2], ['thing'], ctx);
+      if (!holder) return fail(`There's no “${m[2]}” here to put it in.`);
+      const n = stackCount(item, cq);
+      return act('put', keep(holder), n != null ? { item: item.id, count: n } : { item: item.id });
+    }
+    case 'lay':
+      // "lay stone" / "lay the first course" is a mason's work on the wall; "lay the blade on the rack" is putting
+      if (/\b(?:stones?|course|courses|wall|blocks?|bricks?|foundations?|footing)\b/.test(rest) && has('work')) return redo('work', { rest: 'as mason' });
+      return redo('put');
+
+    // ---- rest and hurt
+    case 'sleep':
+      return act('sleep', null);
+    case 'wake': {
+      const phrase = rest.replace(/\s+up$/, '').trim();
+      if (!phrase || /^(?:myself|me|self|up)$/.test(phrase)) return act('wake', aff('wake', S.youId) ? youRef() : null);
+      const ref = keep(resolveRef(phrase, ['person'], ctx));
+      return ref ? act('wake', ref) : fail(`There's no “${phrase}” here to wake.`);
+    }
+    case 'tend': {
+      // "tend to the reeve's wound", "bind my wounds", "patch Ruhl up"
+      const phrase = rest.replace(/(?:'s)?\s*\b(?:wounds?|injur(?:y|ies)|hurts?|cuts?|gash(?:es)?|bleeding|burns?)\b.*$/, '').replace(/\s+up$/, '').trim();
+      if (/^(?:my|myself|me|my own|own)$/.test(phrase) || (!phrase && /\bmy\b/.test(rest))) return act('tend', youRef());
+      const ref = keep(resolveRef(phrase || 'them', ['person'], ctx));
+      return ref ? act('tend', ref) : fail(phrase ? `There's no “${phrase}” here to tend.` : 'Tend whom? Click someone or name them.');
+    }
+
+    // ---- paper, fire, water, rope
+    case 'burn': {
+      const phrase = rest.replace(/\s+(?:in|into|on|at|with|over)\s+(?:the\s+)?(?:fire|flames?|hearth|brazier|coals|embers|lamp|candle)\b.*$/, '').trim();
+      const ref = affFor('burn', phrase, ctx, 'named') || (isNamed(phrase) ? resolveRef(phrase, ['held', 'thing'], ctx) : null);
+      return ref ? act('burn', keep(ref)) : fail(phrase ? `There's no “${phrase}” here to burn.` : 'Burn what?');
+    }
+    case 'write': case 'sign': {
+      // the words: quoted, else everything up to "on the leaf"; signing is writing your own name
+      let text = verb === 'sign' ? nm(S.youId) : quote, tgt = rest;
+      if (!text) {
+        const m = rest.match(/^(.*)\s+(?:on|onto|in|into|across)\s+(.+)$/);
+        if (m && affFor('write', m[2], ctx, 'named')) { text = m[1]; tgt = m[2]; } else { text = rest; tgt = ''; }
+        const i = cl.src.toLowerCase().lastIndexOf(text);
+        if (text && i >= 0) text = cl.src.slice(i, i + text.length);   // as typed, capitals and all
+      }
+      if (!text) return fail('Write what? e.g. write "meet me at the well" on the leaf');
+      let ref = affFor('write', tgt, ctx, 'loose');
+      if (!ref && !isNamed(tgt)) {
+        // two papers in hand: the blank one
+        const blank = affs.find((a) => a.verb === 'write' && a.target && (S.state.holding || []).some((h) => h.id === a.target && h.state?.blank));
+        if (blank) ref = { id: blank.target, name: blank.target_name || nm(blank.target), kind: 'held' };
+      }
+      if (!ref) return fail(tgt ? `You have no “${tgt}” to write on.` : 'Write on what? Hold a leaf of paper first.');
+      return act('write', keep(ref), { text });
+    }
+    case 'consult': {
+      const m = rest.match(/^(.*?)\s*\b(?:about|on|regarding|concerning|over|re|for|with)\s+(.+)$/);
+      const whoP = m ? m[1] : rest, topic = (quote || (m ? m[2] : '')).trim();
+      const who = (isNamed(whoP) && resolveRef(whoP, ['person'], ctx)) || affFor('consult', whoP, ctx, 'loose');
+      if (!who) return fail('Consult whom? A Guild reckoner answers for a shard.');
+      if (!topic) return fail('Consult them about what? A reckoner sells answers on water, the moon, the convoy or the glass.');
+      return act('consult', keep(who), { question: topic });
+    }
+    case 'free': {
+      const phrase = rest.replace(/(?:'s)?\s*\b(?:ropes?|bonds?|knots?|cords?|bindings?)\b/g, ' ').replace(/\s+(?:loose|free|up)$/, '').replace(/\s+/g, ' ').trim();
+      const ref = (isNamed(phrase) && resolveRef(phrase, ['person'], ctx)) || affFor('free', phrase, ctx, 'loose');
+      return ref ? act('free', keep(ref)) : fail(phrase ? `There's no “${phrase}” here to cut loose.` : 'Free whom?');
+    }
+    case 'spoil': {
+      const phrase = rest.replace(/^(?:the\s+)?seams\s+(?:of|on)\s+/, '').replace(/(?:'s)?\s+seams$/, '').replace(/\s+with\s+.*$/, '').trim();
+      const ref = affFor('spoil', phrase, ctx, 'loose') || (isNamed(phrase) ? resolveRef(phrase, ['thing'], ctx) : null);
+      return ref ? act('spoil', keep(ref)) : fail(phrase ? `There's no “${phrase}” here to spoil.` : 'Spoil what?');
+    }
+    case 'leave_word': {
+      // "leave word with Ossa for Ruhl: meet me at the well", "leave a message for Sefa with Taan saying …"
+      let word = quote, head = rest;
+      if (!word) {
+        const wm = cl.src.match(/:\s*(.+)$/) || cl.src.match(/\bsaying\s+(.+)$/i) || cl.src.match(/\bthat\s+(.+)$/i);
+        if (wm) { word = wm[1].trim(); head = normT(cl.src.slice(0, wm.index)); }
+      }
+      head = head.replace(/\s+(?:saying|that)$/, '');
+      const keeperP = (head.match(/\bwith\s+(.+?)(?=\s+for\b|$)/) || [])[1] || '';
+      let forP = (head.match(/\bfor\s+(.+?)(?=\s+with\b|$)/) || [])[1] || '';
+      const fi = forP ? cl.src.toLowerCase().indexOf(forP) : -1;
+      if (fi >= 0) forP = cl.src.slice(fi, fi + forP.length);   // "Ruhl", as typed
+      const keeper = keep(resolveRef(keeperP || 'them', ['person'], ctx));
+      if (!keeper) return fail('Leave word with whom? Name someone here who will keep it.');
+      if (!word) return fail('Leave what word? e.g. leave word with Ossa for Ruhl: meet me at the well');
+      return act('leave_word', keeper, { for: forP || 'anyone', word });
+    }
+
+    // ---- locks
+    case 'unlock': case 'lock': {
+      let code = quote;
+      const cm = !code && cl.src.match(/\b(?:code|combination|word|tumblers?(?:\s+to)?|dial(?:\s+to)?)\s+(?:is\s+|of\s+|to\s+)?([A-Za-z0-9-]{2,})/i);
+      if (cm) code = cm[1];
+      const wm = !code && cl.src.match(/\b(?:with|using)\s+([A-Za-z0-9-]{2,})\s*[.!]?\s*$/i);
+      if (wm && !/^(?:key|keys|it|that|this|mine|force)$/i.test(wm[1]) && !resolveRef(wm[1], ['held'], ctx)) code = wm[1];
+      const phrase = rest.replace(/\s*\b(?:with|using|by|code|combination)\b.*$/, '').replace(/^open\s+/, '').trim();
+      const ref = affFor(verb, phrase, ctx, 'loose');
+      if (!ref) return fail(phrase ? `There's no lock on “${phrase}” here.` : `There is nothing here to ${verb}.`);
+      return act(verb, keep(ref), code ? { code } : null);
+    }
+    case 'break': {
+      const phrase = rest.replace(/^(?:open|in|down)\s+/, '').replace(/\s+(?:open|in|down)$/, '').trim();
+      const ref = affFor('break', phrase, ctx, 'named');
+      if (ref) return act('break', keep(ref));
+      const v = isNamed(phrase) && affFor('strike', phrase, ctx, 'named');   // "break the crawler"
+      if (v) return act('strike', keep(v));
+      const lk = affFor('break', phrase, ctx, 'loose');
+      return lk ? act('break', keep(lk)) : fail(phrase ? `There's nothing called “${phrase}” here to break.` : 'There is nothing here to break.');
+    }
+
+    // ---- vehicles: board from alongside, drive and alight from aboard, halt from either
+    case 'board': {
+      const ref = affFor('board', rest, ctx, 'named');
+      if (ref) return act('board', keep(ref));
+      if (isNamed(rest)) {
+        const p = resolveRef(rest, null, ctx);   // "get into the hold" is walking
+        if (p && (p.kind === 'exit' || p.kind === 'place')) return redo('go');
+      }
+      if (aboard) return fail(`You are aboard ${here.name} already.`);
+      return fail(rest ? `There's no “${rest}” here to board.` : 'There is nothing here to board.');
+    }
+    case 'alight': {
+      const ref = affFor('alight', rest, ctx, 'any');
+      if (ref) return act('alight', ref);
+      return isNamed(rest) ? redo('go') : fail('You are not aboard anything.');
+    }
+    case 'ride':
+      return redo(aboard || /\bto\b/.test(cl.rest) ? 'drive' : 'board');
+    case 'drive': {
+      const m = cl.rest.match(/^(.*?)\s*\b(?:to|for|toward|towards|into|on to|back to)\s+(.+)$/);
+      const vehP = m ? m[1].replace(/^(?:back|on)\s*/, '') : rest, destP = m ? m[2] : '';
+      if (!has('drive')) return fail(has('board') ? 'Board it first: it is driven from aboard.' : 'There is nothing here to drive.');
+      const veh = affFor('drive', vehP, ctx, 'any');
+      return act('drive', keep(veh), destP ? { to: placeParam(destP) } : null);
+    }
+    case 'halt': {
+      const phrase = isNamed(rest) ? rest : '';
+      if (/^following\b/.test(rest) || (!phrase && S.state.you?.state?.follows)) return act('stay', null);
+      if (!phrase) {
+        const live = affs.find((a) => a.verb === 'halt' && a.ok && a.target);
+        return live ? act('halt', keep({ id: live.target, name: live.target_name || nm(live.target), kind: 'thing' })) : act('stay', null);
+      }
+      const ref = affFor('halt', phrase, ctx, 'named');
+      return ref ? act('halt', keep(ref)) : fail(`There's nothing called “${phrase}” on the move here.`);
+    }
+    case 'repair': {
+      // "mend my wounds", "mend Ruhl" are tending
+      if (/\b(?:wounds?|injur(?:y|ies)|hurts?|cuts?|myself)\b/.test(rest) || (isNamed(rest) && resolveRef(rest, ['person'], ctx) && !affFor('repair', rest, ctx, 'named'))) return redo('tend');
+      const ref = affFor('repair', rest, ctx, 'loose');
+      return ref ? act('repair', keep(ref)) : fail('There is nothing broken here to repair.');
+    }
+    case 'refuel': {
+      // "refuel the hauler with pitch", "feed the hauler two pots of pitch", "fuel up"
+      let vehP = rest, itemP = '';
+      const m = rest.match(/^(.*?)\s*\b(?:with|using)\s+(.+)$/);
+      if (m) { vehP = m[1]; itemP = m[2]; }
+      else { const lead = leadingAff('refuel', rest, ctx); if (lead) { vehP = rest.slice(0, rest.length - lead.rest.length).trim(); itemP = lead.rest; } }
+      const veh = affFor('refuel', vehP, ctx, 'any');
+      if (!veh) return fail('There is nothing here that runs on fuel.');
+      if (!itemP) return act('refuel', keep(veh));
+      const cq = countOf(itemP);
+      const item = resolveRef(cq.rest, ['held'], ctx);
+      if (!item) return fail(`You aren't holding “${cq.rest}”.`);
+      const n = stackCount(item, cq);
+      return act('refuel', keep(veh), n != null ? { item: item.id, count: n } : { item: item.id });
+    }
+
+    // ---- glass, stone and the wall works
+    case 'harvest': {
+      const phrase = rest.replace(/^(?:for\s+|up\s+|out\s+)?(?:a\s+|some\s+|one\s+|the\s+)?(?:shards?|glass|emberglass|ember)\b\s*(?:out\s+)?(?:of\s+|from\s+)?/, '').trim();
+      const ref = affFor('harvest', phrase, ctx, 'loose');
+      return ref ? act('harvest', keep(ref)) : fail('There is no vein here to dig.');
+    }
+    case 'dress': {
+      if (/\b(?:wounds?|injur(?:y|ies)|hurts?|cuts?|gash(?:es)?)\b/.test(rest) || (isNamed(rest) && resolveRef(rest, ['person'], ctx))) return redo('tend');
+      const phrase = rest.replace(/^(?:a\s+|some\s+|one\s+|the\s+)?(?:stones?|blocks?)\b\s*(?:out\s+)?(?:of\s+|from\s+)?/, '').trim();
+      const ref = affFor('dress', phrase, ctx, 'loose');
+      return ref ? act('dress', keep(ref)) : fail('There is no rubble here to dress.');
+    }
+    case 'work': {
+      const rm = rest.match(/\b(?:as|like)\s+(?:a\s+|an\s+|the\s+)?([a-z]+)/);
+      const role = rm ? ({ labourer: 'hand', laborer: 'hand', lifter: 'hand', hands: 'hand', masons: 'mason' }[rm[1]] || rm[1]) : null;
+      const phrase = rest.replace(/\b(?:as|like)\s+(?:a\s+|an\s+|the\s+)?[a-z]+/, '').replace(/^(?:on|at|in|for)\s+/, '').trim();
+      const ref = affFor('work', phrase, ctx, 'loose');
+      return ref ? act('work', keep(ref), role ? { role } : null) : fail('There are no works here to work on.');
+    }
+    case 'supply': {
+      // "supply the works with lime", "supply the lime to the works"
+      let itemP = rest, worksP = '';
+      const mw = rest.match(/^(.*?)\s+\bwith\s+(.+)$/), mt = rest.match(/^(.*?)\s+\b(?:to|into|for)\s+(.+)$/);
+      if (mw) { worksP = mw[1]; itemP = mw[2]; } else if (mt) { itemP = mt[1]; worksP = mt[2]; }
+      const item = resolveRef(itemP, ['held'], ctx);
+      if (!item) return fail(`You aren't holding “${itemP}”.`);
+      const ref = affFor('supply', worksP, ctx, 'loose');
+      return ref ? act('supply', keep(ref), { item: item.id }) : fail('There are no works here to supply.');
+    }
+    case 'build': {
+      const ref = affFor('build', rest, ctx, 'loose');
+      return ref ? act('build', keep(ref)) : fail('There is no plan here to build from.');
+    }
+    case 'hire': {
+      const rm = rest.match(/^(.*?)\s+\b(?:as|for)\s+(?:a\s+|an\s+|the\s+)?([a-z]+)/);
+      const who = resolveRef(rm ? rm[1] : rest, ['person'], ctx);
+      if (!who) return fail('Hire whom? Name someone here looking for work.');
+      const ref = affFor('hire', '', ctx, 'any');
+      if (!ref) return fail('There are no works here to hire for.');
+      return act('hire', ref, rm ? { who: who.name, role: rm[2] } : { who: who.name });
+    }
+    case 'smoke': {
+      const ref = affFor('smoke', rest.replace(/^out\s+/, '').replace(/\s+out$/, ''), ctx, 'loose');
+      return ref ? act('smoke', keep(ref)) : fail('There is nothing here to smoke out.');
     }
     case 'say': {
       const m = rest.match(/^(.*?)\s*\b(?:to|at|towards?)\s+(.+)$/);
@@ -1311,10 +1937,12 @@ function interpret(text) {
     const cl = parseClause(p, quotes);
     const prev = clauses[clauses.length - 1];
     if (!cl.verb && !cl.subject && !cl.quote && prev) {
-      // "take the skin and the blade" → the blade inherits take; topics keep talking
-      if (['talk', 'say', 'parley'].includes(prev.verb)) { prev.rest += ' and ' + cl.original; continue; }
+      // "take the skin and the blade" → the blade inherits take; topics and written words keep going
+      if (['talk', 'say', 'parley', 'leave_word', 'write'].includes(prev.verb)) { prev.rest += ' and ' + cl.original; prev.src += ' and ' + cl.src; continue; }
       if (prev.verb) { cl.verb = prev.verb; cl.rest = cl.original; }
     }
+    // "lie down and sleep" is one sleep
+    if (prev && cl.verb && cl.verb === prev.verb && ['sleep', 'stay', 'brace', 'alight', 'halt'].includes(cl.verb) && !cl.rest && !prev.rest) continue;
     clauses.push(cl);
   }
   return clauses;
@@ -1329,8 +1957,18 @@ function stepsFor(clauses) {
   }).filter(Boolean);
 }
 
+// how a param reads in the preview: "Emberglass · ×3", "→ The Gate Yard", "“meet me at the well”"
+function paramText(k, v) {
+  if (k === 'item') return nm(v);
+  if (k === 'slow') return 'slow blade';
+  if (k === 'count') return `×${v}`;
+  if (k === 'to') return `→ ${v}`;
+  if (k === 'text' || k === 'word') return `“${v}”`;
+  return `${k} ${v}`;
+}
+
 function stepLabel(st) {
-  const pt = (p) => Object.entries(p || {}).map(([k, v]) => (k === 'item' ? nm(v) : k === 'slow' ? 'slow blade' : `${k} ${v}`)).join(' · ');
+  const pt = (p) => Object.entries(p || {}).map(([k, v]) => paramText(k, v)).join(' · ');
   switch (st.type) {
     case 'act': return { v: st.verb, t: st.ref ? st.ref.name : '', p: pt(st.params), ok: st.ok, why: st.reason };
     case 'walk': return { v: 'walk to', t: st.ref.name, p: '(only you see this)', ok: true };
@@ -1409,12 +2047,21 @@ async function runStep(st) {
     case 'inspect': return inspectRef(st.ref);
     case 'act': {
       if (!st.ok && st.reason) { toast(st.reason); logLine(`${st.verb} ${st.ref ? st.ref.name : ''}: ${st.reason}`, 'fail'); return false; }
-      if (st.ref && st.ref.id && st.verb !== 'go' && st.verb !== 'creep') S.faceAt.set(S.youId, { id: st.ref.id, until: performance.now() + 15000 });
+      if (st.ref && st.ref.id && st.ref.id !== S.youId && st.verb !== 'go' && st.verb !== 'creep') S.faceAt.set(S.youId, { id: st.ref.id, until: performance.now() + 15000 });
       const before = S.placeId;
       const r = await doVerb(st.verb, st.ref ? st.ref.id : null, st.params);
       if (!r) return false;
-      if (['go', 'creep', 'crawl'].includes(st.verb)) {
+      // boarding and alighting change the place too (aboard, the vehicle is the place)
+      if (['go', 'creep', 'crawl', 'board', 'alight'].includes(st.verb)) {
         await waitFor(() => S.placeId !== before && !S.pendingPlace, 4000 + ((r.duration || 0) / (S.rate || 1)) * 1000);
+      }
+      // "drive to the yard and get off": the next step waits until it has pulled in (or stopped short)
+      if (st.verb === 'drive') {
+        const rolling = () => !!S.state?.here?.state?.moving;
+        await waitFor(rolling, 4000);
+        const tr = S.state?.here?.state?.trip;
+        const secs = tr && tr.eta != null && S.state.t != null ? (tr.eta - S.state.t) / (S.rate || 1) : 300;
+        await waitFor(() => !rolling(), Math.min(600000, Math.max(5000, secs * 1000 + 15000)));
       }
       return true;
     }
@@ -1451,21 +2098,25 @@ function sayCand(text, to) {
   return { kind: 'say', verb: 'say', target: toE ? `→ ${toE.name}` : '', extra: `“${text}”`, ok: true, fill: null, run: () => doSay(text, to || undefined) };
 }
 
+// params a verb does fine without: never prompted for
+const OPTIONAL_PARAMS = ['slow', 'dc', 'skill', 'count'];
+const OPTIONAL_BY_VERB = { refuel: ['item'], unlock: ['code'], lock: ['code'] };
 function actCand(a, params) {
   const pr = {};
   for (const k of Object.keys(a.params || {})) if (params[k] != null) pr[k] = params[k];
+  if (params.count != null) pr.count = params.count;   // stacks take a count whether or not the verb declares one
   const missingNeeded = !a.ok && /say what|params/i.test(a.reason || '');
   const filled = Object.keys(pr).length > 0;
   const ok = a.ok || (missingNeeded && filled);
   const tname = a.target ? a.target_name || nm(a.target) : '';
-  const freeKeys = Object.keys(a.params || {}).filter((k) => !['slow', 'dc', 'skill'].includes(k));
+  const freeKeys = Object.keys(a.params || {}).filter((k) => !OPTIONAL_PARAMS.includes(k) && !(OPTIONAL_BY_VERB[a.verb] || []).includes(k));
   const missing = freeKeys.filter((k) => pr[k] == null);
   if (missing.length && (a.ok || missingNeeded)) {
     const k0 = missing[0];
     const fill = (k0 === 'item' ? `${a.verb} ` : `${a.verb} ${shortName(tname)} ${k0} `).replace(/\s+/g, ' ');
     return { kind: 'complete', verb: a.verb, target: tname, extra: `${k0} …`, ok: true, fill, run: null };
   }
-  const shown = Object.entries(pr).map(([k, v]) => (k === 'item' ? nm(v) : k === 'slow' ? 'slow blade' : `${k} ${v}`)).join(' · ');
+  const shown = Object.entries(pr).map(([k, v]) => paramText(k, v)).join(' · ');
   return {
     kind: 'act', verb: a.verb, target: tname, extra: shown, ok, reason: ok ? null : a.reason,
     fill: `${a.verb} ${shortName(tname)}`.trim() + ' ',
@@ -1483,10 +2134,11 @@ function rawCand(vw, rest) {
   return { kind: 'raw', verb: vw, target: rest ? tname : '', extra: 'try it anyway', ok: true, fill: null, run: () => doVerb(vw, target, null) };
 }
 
-const IDEA_ORDER = ['go', 'talk', 'drink', 'fill', 'read', 'watch', 'give', 'show', 'follow', 'check', 'brace', 'parley', 'creep', 'take', 'toggle'];
+const IDEA_ORDER = ['go', 'alight', 'drive', 'board', 'talk', 'drink', 'fill', 'tend', 'wake', 'read', 'watch', 'give', 'show', 'follow', 'check', 'brace', 'parley', 'creep', 'take', 'toggle'];
 function ideas() {
   const seen = new Set(), out = [];
-  const affs = (S.state.affordances || []).filter((a) => a.ok && IDEA_ORDER.includes(a.verb));
+  // drive only ever wants its "to": offer it aboard as a Tab completion
+  const affs = (S.state.affordances || []).filter((a) => (a.ok || (a.verb === 'drive' && /params/i.test(a.reason || ''))) && IDEA_ORDER.includes(a.verb));
   affs.sort((a, b) => IDEA_ORDER.indexOf(a.verb) - IDEA_ORDER.indexOf(b.verb));
   for (const a of affs) {
     const key = a.verb + a.target;
@@ -1527,8 +2179,15 @@ function strictSuggestions(text) {
   if (ci >= 0) { colon = p.slice(ci + 1).trim(); p = p.slice(0, ci).trim(); }
   let itemPhrase = null;
   if (keys.has('item')) {
-    const mi = p.match(/^(.*?)\s+(?:to|for|at)\s+(.+)$/i);
-    if (mi) { itemPhrase = mi[1]; p = mi[2]; } else if (p) { itemPhrase = p; p = ''; }
+    // "give blade to ossa", "put shards in strongbox", "refuel hauler with pitch" (refuel's item is optional)
+    const mw = p.match(/^(.*?)\s+(?:with|using)\s+(.+)$/i);
+    const mi = p.match(/^(.*?)\s+(?:to|for|at|in|into|on|onto|inside)\s+(.+)$/i);
+    if (mw && verb !== 'give' && verb !== 'show') { itemPhrase = mw[2]; p = mw[1]; }
+    else if (mi && verb !== 'refuel') { itemPhrase = mi[1]; p = mi[2]; } else if (p && verb !== 'refuel') { itemPhrase = p; p = ''; }
+    if (itemPhrase) { const cq = countOf(itemPhrase); if (cq.n != null && !cq.soft) params.count = cq.n; itemPhrase = cq.rest; }
+  } else if (verb === 'take' || verb === 'drop') {
+    const cq = countOf(p);
+    if (cq.n != null && !cq.soft) { params.count = cq.n; p = cq.rest; }
   }
   if (keys.has('slow') && /\bslow(ly)?\b/i.test(p)) { params.slow = true; p = p.replace(/\bslow(ly)?\b/gi, ' ').trim(); }
   if (keys.has('dc')) { const md = p.match(/\b(?:dc\s*)?(\d{1,2})\b/i); if (md) { params.dc = +md[1]; p = (p.slice(0, md.index) + p.slice(md.index + md[0].length)).trim(); } }
@@ -1538,7 +2197,7 @@ function strictSuggestions(text) {
     const w = wordsOf(p).find((x) => list.includes(x));
     if (w) { params.skill = w; p = p.replace(new RegExp(`\\b${w}\\b`, 'i'), ' ').trim(); }
   }
-  const freeKeys = [...keys].filter((k) => !['item', 'slow', 'dc', 'skill'].includes(k));
+  const freeKeys = [...keys].filter((k) => !['item', 'slow', 'dc', 'skill', 'count'].includes(k));
   for (const k of freeKeys) {
     const mk = p.match(new RegExp(`\\b${k}\\b\\s*(.*)$`, 'i'));
     if (mk) { if (mk[1]) params[k] = mk[1].trim(); p = p.slice(0, mk.index).trim(); }
@@ -1572,6 +2231,7 @@ function strictSuggestions(text) {
     chosen = [...self, ...selAff, ...affs.filter((a) => a.target && !selAff.includes(a))];
     chosen.sort((a, b) => (b.ok - a.ok));
   }
+  if (params.to) params.to = placeParam(params.to);   // "drive to the landing" → The Carriers' Landing
   const out = chosen.slice(0, 7).map((a) => actCand(a, params));
   if (w.length && !chosen.length) {
     out.push({ kind: 'none', verb, target: p, extra: '', ok: false, reason: `nothing called “${p}” to ${verb} here`, fill: null, run: null });

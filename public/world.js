@@ -11,12 +11,14 @@
 //    pass 3  halftone dots at full resolution
 // =====================================================================
 
-const MAXG = 48;          // object groups: the first level of culling
+const MAXG = 64;          // object groups: the first level of culling
+const STATIC_G = 34;      // of which the set itself may use this many; the rest are for people, things and exits
 const PRIM_ROWS = 1024;   // primitives in the data texture
 const MAT = {
   SAND: 0, STONE: 1, ROCK: 2, PERSON: 3, YOU: 4, WATER: 5, WOOD: 6, CLOTH: 7, GLASS: 8, FLOOR: 9,
   SEL: 10, DOWN: 11, EXIT: 12, DARK: 13, SUN: 14, SKY: 15, EMBER: 16, FIRE: 17, METAL: 18, BONE: 19,
-  SALT: 20, TARP: 21, PAN: 22, BANNER: 23, KETH: 24, LAMP: 25, CAVE: 26, ROPE: 27, BRASS: 28, TERRAIN: 31,
+  SALT: 20, TARP: 21, PAN: 22, BANNER: 23, KETH: 24, LAMP: 25, CAVE: 26, ROPE: 27, BRASS: 28, THORN: 29, BRICK: 30,
+  TERRAIN: 31,
 };
 const SH = {
   BOX: 0, SPHERE: 1, CAPSULE: 2, CYL: 3, PRISM: 4, HUMAN: 5, HOODOO: 6, ARCH: 7, RIBS: 8, ROCK: 9,
@@ -32,7 +34,7 @@ const PALETTES = {
     ink: '#120a35', line: '#efeaff', stripes: 1,
     mats: ['#5a4ad6', '#7266e8', '#4c3cc0', '#8d84ff', '#ff5fc8', '#38c6ff', '#6a4ce0', '#a48cff', '#2a1f78', '#2f68ff',
       '#ffd84a', '#2c2378', '#7dfcff', '#1a1250', '#ff4fd8', '#cdc2f6', '#ff3d7a', '#ffa05c', '#5e58a8', '#e4dcff',
-      '#eee8ff', '#8f6bff', '#6b5ce0', '#ff5fc8', '#b9a5ff', '#ffe08a', '#2a2070', '#9d8cf0', '#ffd27a', '#888888', '#888888', '#5a4ad6'],
+      '#eee8ff', '#8f6bff', '#6b5ce0', '#ff5fc8', '#b9a5ff', '#ffe08a', '#2a2070', '#9d8cf0', '#ffd27a', '#5fd6b0', '#8a4fc8', '#5a4ad6'],
     sky: {
       day: ['#8f7fe6', '#cdc2f6', '#ff4fd8', '#8a1cff'],
       dawn: ['#5f55cc', '#f2b8ea', '#ff8fd0', '#b03cff'],
@@ -45,7 +47,7 @@ const PALETTES = {
     ink: '#1a1009', line: '#fff3dc', stripes: 0,
     mats: ['#c98c4f', '#a8957c', '#a24c32', '#3a2a22', '#d2553a', '#3f8fb0', '#7a5030', '#d8c2a0', '#1c1a22', '#9a7a5a',
       '#ffe08a', '#4a2e22', '#6fe0e8', '#20140c', '#fff1c1', '#f2dcb4', '#ff4a2a', '#ffb347', '#5a5450', '#efe4cf',
-      '#f4efe6', '#8a7356', '#b89a72', '#8e1f2a', '#c8b08a', '#ffd27a', '#3a2a24', '#9a8060', '#c8a050', '#888888', '#888888', '#c98c4f'],
+      '#f4efe6', '#8a7356', '#b89a72', '#8e1f2a', '#c8b08a', '#ffd27a', '#3a2a24', '#9a8060', '#c8a050', '#7d8a5a', '#a8583a', '#c98c4f'],
     sky: {
       day: ['#d9a865', '#f2dcb4', '#fff1c1', '#ff8a3c'],
       dawn: ['#7a86b8', '#f4c7a0', '#ffe2b0', '#ff7a4a'],
@@ -84,7 +86,8 @@ float sdEllipsoid(vec3 p, vec3 r) { float k0 = length(p / r); float k1 = length(
 float limb(vec3 p, vec3 a, vec3 b, vec3 c, float r0, float r1, float r2) { return min(sdTaper(p, a, b, r0, r1), sdTaper(p, b, c, r1, r2)); }
 
 // A person: feet at y = 0, facing +z, about 1.8 tall.
-// C = (walk, style, stride, flags: +1 lying, +2 armed)   D = (pose, arms, clock offset, props)
+// C = (walk, style, stride, flags: +1 lying, +2 blade, +4 knife, +8 maul, +16 bow, +32 spear)
+// D = (pose, arms, clock offset, props)
 // pose 0 stand, 1 sit cross-legged, 3 kneel.  arms 0 swing, 1 spyglass, 2 crossed, 3 hilt, 4 ledger,
 // 5 yoke, 6 talking, 7 drill.  props +1 spyglass, +2 ledger, +4 yoke and jars, +8 staff.
 // style 0 plain, 1 guard, 2 Keth, 3 carrier, 4 long coat, 5 elder, 6 captain.
@@ -95,6 +98,10 @@ float sdHuman(vec3 p, vec4 C, vec4 D) {
   float tp = uTime + D.z;
   float props = D.w;
   bool armed = mod(C.w, 4.0) > 1.5;
+  bool wKnife = mod(floor(C.w * 0.25), 2.0) > 0.5;
+  bool wMaul = mod(floor(C.w * 0.125), 2.0) > 0.5;
+  bool wBow = mod(floor(C.w * 0.0625), 2.0) > 0.5;
+  bool wSpear = mod(floor(C.w * 0.03125), 2.0) > 0.5;
   bool pGlass = mod(props, 2.0) > 0.5;
   bool pLedger = mod(floor(props * 0.5), 2.0) > 0.5;
   bool pYoke = mod(floor(props * 0.25), 2.0) > 0.5;
@@ -147,6 +154,7 @@ float sdHuman(vec3 p, vec4 C, vec4 D) {
   else if (arms == 6) { float g = sin(tp * 3.1) * 0.5 + 0.5; elR = vec3(0.28, 1.12, 0.12); haR = vec3(0.2, 1.22 + 0.12 * g, 0.4); }
   else if (arms == 7) { float c = sin(tp * 1.6); elR = vec3(0.3, 1.36 + 0.12 * c, 0.18); haR = vec3(0.2 - 0.2 * c, 1.5 + 0.18 * c, 0.42 - 0.08 * c); elL = vec3(-0.26, 1.1, 0.12); haL = vec3(-0.12, 1.16, 0.3); }
   if (pStaff) { elL = vec3(-0.28, 1.12, 0.12); haL = vec3(-0.3, 1.2, 0.3); }
+  if (wSpear && arms != 7 && arms != 5) { elR = vec3(0.28, 1.12, 0.12); haR = vec3(0.3, 1.2, 0.3); }
   d = smin(d, min(limb(u, shR, elR, haR, 0.058, 0.048, 0.04), limb(u, shL, elL, haL, 0.058, 0.048, 0.04)), 0.035);
   if (pGlass) d = min(d, sdTaper(u, haR + vec3(-0.03, 0.02, -0.04), haR + vec3(-0.06, 0.06, 0.44), 0.03, 0.022));
   if (pLedger) d = min(d, sdBox(u - haL - vec3(0.04, 0.03, 0.02), vec3(0.11, 0.016, 0.08), 0.004));
@@ -161,6 +169,22 @@ float sdHuman(vec3 p, vec4 C, vec4 D) {
   if (armed) {
     if (arms == 7) d = min(d, sdSeg(u, haR, haR + vec3(0.04, 0.48, 0.46), 0.017));
     else d = min(d, sdSeg(u, vec3(-0.17, 0.97, 0.06), vec3(-0.26, 0.38, -0.14), 0.022));
+  }
+  // what else they visibly bear: a knife at the right hip, a maul or a bow across the back, a spear in hand
+  if (wKnife) d = min(d, sdTaper(u, vec3(0.2, 0.96, 0.07), vec3(0.23, 0.7, 0.11), 0.022, 0.008));
+  if (wMaul) {
+    d = min(d, sdSeg(u, vec3(-0.24, 0.72, -0.2), vec3(0.16, 1.6, -0.2), 0.022));
+    d = min(d, sdBox(u - vec3(0.18, 1.66, -0.2), vec3(0.13, 0.07, 0.07), 0.015));
+  }
+  if (wBow) {
+    vec3 bu = u - vec3(0.0, 1.22, -0.23);
+    float bo = length(vec2(length(bu.xy - vec2(-0.55, 0.0)) - 0.78, bu.z));
+    d = min(d, max(bo - 0.02, abs(bu.y) - 0.62));
+    d = min(d, sdSeg(u, vec3(-0.08, 0.6, -0.23), vec3(-0.08, 1.84, -0.23), 0.006));
+  }
+  if (wSpear) {
+    d = min(d, sdSeg(p, vec3(0.32, 0.0, 0.34), vec3(0.3, 2.15, 0.29), 0.02));
+    d = min(d, sdTaper(p, vec3(0.3, 2.15, 0.29), vec3(0.3, 2.42, 0.28), 0.04, 0.003));
   }
   if (style == 1 || style == 6) {
     d = smin(d, length(u - vec3(0.0, 1.67, 0.0)) - 0.135, 0.02);
@@ -933,7 +957,7 @@ function primBound(p) {
     case SH.CAPSULE: return at(0, c[3] + r);
     case SH.CYL: return at(0, Math.hypot(r, c[3]));
     case SH.PRISM: return at(0, Math.hypot(c[0], c[1]) * 1.2);
-    case SH.HUMAN: return at(0.95 * r, 1.25 * r);
+    case SH.HUMAN: return at(1.05 * r, 1.45 * r);
     case SH.HOODOO: return at(c[3] * 0.55, c[3] * 0.6 + Math.max(r, c[1]) + c[2]);
     case SH.ARCH: return at(0, c[0] + r + c[2]);
     case SH.RIBS: return at(0, Math.hypot(c[0] * d[0] * 0.5, c[1]) + r + 0.5);
@@ -965,16 +989,23 @@ function groupBound(prims) {
 // ---------------------------------------------------------------------
 //  Sets: one for each kind of place in the Glass Reach
 // ---------------------------------------------------------------------
-// Rough positions for bearings between places (north is -z).
+// Rough positions for bearings between places (north is -z), for a world whose exits carry no route.
 const WORLD_MAP = [
   [/scar gate|the hold/i, [0, 0]], [/gate yard/i, [0, -1]], [/salt road/i, [0, -6]], [/landing/i, [4, -11]],
   [/glass flats/i, [-3, -13]], [/red ridge/i, [-3, -22]], [/deepwell/i, [-2, -23]], [/bone field/i, [-12, -15]], [/^the deep$/i, [-6, -14]],
 ];
 const mapPos = (name) => { for (const [re, p] of WORLD_MAP) if (re.test(name || '')) return p; return null; };
 
+const isVehicle = (e) => !!e && (e.type === 'vehicle' || Array.isArray(e.state?.stops));
 function setKind(here) {
+  if (isVehicle(here)) return 'deck';
   const name = here.name || '';
   const tests = [
+    // the specific places first, so a guild's yard is not taken for the Hold's, nor a dry camp for the Landing
+    ['guildyard', /guild yard/i], ['bunkhouse', /bunkhouse|barracks room|dormitory/i], ['counting', /counting house|strongroom|treasury/i],
+    ['cellar', /cellar|vault|crypt/i], ['steading', /steading|farmstead|homestead|cottage/i], ['thornbrake', /thornbrake|thorn|bramble|scrub/i],
+    ['weeping', /weeping rock|spring|seep/i], ['lowwell', /low well|well-head|old well/i], ['lee', /lee\b|crawler's lee/i],
+    ['drycamp', /dry camp|war camp|bivouac/i], ['hollow', /hollow/i], ['saltworks', /salt works|brine|saltern/i],
     ['deep', /^the deep$/i], ['deepwell', /deepwell|cavern|cave/i], ['bones', /bone field|wreck/i], ['yard', /yard|drill|barrack/i],
     ['hold', /\bhold\b|keep|hall|fort|castle/i], ['road', /road|track|trail/i], ['landing', /landing|carrier|caravan|market|camp/i],
     ['ridge', /ridge|crag|cliff|bluff|mesa/i], ['flats', /flats|glass|pan/i],
@@ -987,15 +1018,26 @@ function setKind(here) {
 // the kinds the narrator knows for its epigraphs
 function pickRecipe(here) {
   const k = setKind(here);
-  return { landing: 'camp', deepwell: 'ridge', bones: 'flats', deep: 'dunes' }[k] || k;
+  return {
+    landing: 'camp', deepwell: 'ridge', bones: 'flats', deep: 'dunes', guildyard: 'camp', bunkhouse: 'hold', counting: 'hold',
+    cellar: 'hold', steading: 'hold', thornbrake: 'dunes', weeping: 'ridge', lowwell: 'ridge', lee: 'road', drycamp: 'camp',
+    hollow: 'camp', saltworks: 'flats', deck: 'road',
+  }[k] || k;
 }
+// a fire the world says is burning here, or, where it says nothing, one lit after dark
+const fireLit = (set, byDefault) => {
+  const f = set.here.state?.fire;
+  return f === true || (f == null && (byDefault ?? isDim()));
+};
 
 function newSet(kind, here) {
   const set = {
     kind, here, R: rng(hashStr((here.id || '') + (here.name || kind))),
     groups: [], cur: null,
-    spots: { stand: [], sit: [], lookout: [], work: [], drill: [], patrol: [], shade: [], overlook: [], elder: [], items: [], you: { p: [0, 5], y: 0 } },
+    spots: { stand: [], sit: [], lookout: [], work: [], drill: [], patrol: [], shade: [], overlook: [], elder: [], items: [], you: { p: [0, 5], y: 0 },
+      vehicle: [{ p: [-9, -9], yaw: 0.25 }] },
     anchors: [], exitAt: [], lights: [], shafts: [], windows: [], dyn: [],
+    floor: 0, fireAt: here.state?.fire ?? null,
     terr: { t0: [0.9, 8, 10, MAT.SAND], t1: [0, 0, 0, 0], t2: [0, 0, 0, 0], t3: [0, 0, 0, 0], t4: [0, 0, 0, 0] },
     cam: { target: [0, 1.4, -2], dist: 18, pitch: 0.22, yaw: 0, maxDist: 34 },
     landmark: [0, 0, 90], exitR: 13, dust: 0.6, shimmer: 0.4, rays: 1, indoor: false, cave: false, lines: true,
@@ -1009,16 +1051,15 @@ const isNight = () => (S.amb?.night || 0) > 0.6;
 const isDim = () => (S.amb?.night || 0) > 0.25;
 
 // ---- composite pieces
-function cliffLine(set, a, b, height, thick, baseY = 0) {
+function cliffLine(set, a, b, height, thick, baseY = 0, m = MAT.ROCK) {
   const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
   const n = Math.max(2, Math.round(len / 5.5));
   const th = Math.atan2(b[1] - a[1], b[0] - a[0]);
-  set.obj();
   for (let i = 0; i < n; i++) {
     const f = (i + 0.5) / n;
     const h = height * set.r(0.75, 1.25);
-    set.add(PR.rock([a[0] + (b[0] - a[0]) * f, baseY + h * 0.42, a[1] + (b[1] - a[1]) * f],
-      [len / n * 0.62, h * 0.56, thick * set.r(0.8, 1.2)], MAT.ROCK, th + set.r(-0.12, 0.12), { noise: 0.45, freq: 0.7, strata: 0.35, sfreq: 2.2, blocky: 0.85 }));
+    set.obj().add(PR.rock([a[0] + (b[0] - a[0]) * f, baseY + h * 0.42, a[1] + (b[1] - a[1]) * f],
+      [len / n * 0.62, h * 0.56, thick * set.r(0.8, 1.2)], m, th + set.r(-0.12, 0.12), { noise: 0.45, freq: 0.7, strata: 0.35, sfreq: 2.2, blocky: 0.85 }));
   }
 }
 function boulder(set, pos, size, m = MAT.ROCK) {
@@ -1143,6 +1184,75 @@ function farRidge(set, pos) {
   set.obj().add(PR.hoodoo([pos[0] - 18, pos[1], pos[2] + 3], 9, 2, 1.1, 2.4, 1, MAT.ROCK), PR.hoodoo([pos[0] + 14, pos[1], pos[2] + 2], 7, 1.6, 0.9, 1.9, 0.9, MAT.ROCK));
 }
 
+// a line of picket stakes with a cord along them
+function pickets(set, a, b, n = 5) {
+  set.obj();
+  for (let i = 0; i < n; i++) {
+    const f = i / (n - 1), x = a[0] + (b[0] - a[0]) * f, z = a[1] + (b[1] - a[1]) * f;
+    set.add(PR.seg([x, 0, z], [x + set.r(-0.05, 0.05), 1.15, z], 0.04, MAT.WOOD, 0.025));
+  }
+  set.add(PR.seg([a[0], 1.0, a[1]], [b[0], 1.0, b[1]], 0.012, MAT.ROPE));
+}
+// a squat iron tank, half buried, or up on iron legs
+function ironTank(set, pos, r = 1.1, h = 0.8, legs = 0) {
+  set.obj();
+  const y = legs ? legs + h : h * 0.55;
+  set.add(PR.cyl([pos[0], y, pos[2]], r, h, MAT.METAL), PR.torus([pos[0], y + h * 0.55, pos[2]], r + 0.02, 0.04, 0, MAT.METAL),
+    PR.torus([pos[0], y - h * 0.55, pos[2]], r + 0.02, 0.04, 0, MAT.METAL), PR.cyl([pos[0], y + h + 0.06, pos[2]], r * 0.28, 0.09, MAT.METAL));
+  if (legs) for (const [dx, dz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) set.add(PR.seg([pos[0] + dx * r * 0.72, 0, pos[2] + dz * r * 0.72], [pos[0] + dx * r * 0.62, legs + 0.1, pos[2] + dz * r * 0.62], 0.07, MAT.METAL));
+}
+// a horse, as a silhouette like the people: grazing or head up
+function horse(set, pos, yaw, graze = false) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const L = (x, y, z) => [pos[0] + c * x - s * z, y, pos[2] + s * x + c * z];
+  const nx = graze ? 1.45 : 1.3, ny = graze ? 1.0 : 1.95, hx = graze ? 1.7 : 1.68, hy = graze ? 0.45 : 1.7;
+  set.obj().add(PR.ellipsoid(L(0, 1.3, 0), [1.05, 0.4, 0.3], MAT.PERSON, yaw));
+  set.add(PR.seg(L(0.8, 1.45, 0), L(nx, ny, 0), 0.17, MAT.PERSON, 0.11), PR.seg(L(nx, ny, 0), L(hx, hy, 0), 0.12, MAT.PERSON, 0.07));
+  for (const [x, z, k] of [[0.72, 0.15, 0.06], [0.66, -0.15, -0.04], [-0.72, 0.15, -0.05], [-0.66, -0.15, 0.08]]) set.add(PR.seg(L(x, 1.05, z), L(x + k, 0, z), 0.075, MAT.PERSON, 0.04));
+  set.add(PR.seg(L(-1.0, 1.42, 0), L(-1.25, 0.75, 0), 0.07, MAT.PERSON, 0.03));
+}
+// glassthorn: a grey-green tangle with spines that catch the light
+function thornBush(set, pos, size) {
+  set.obj().add(PR.ellipsoid([pos[0], size * 0.36, pos[2]], [size * set.r(0.8, 1.3), size * 0.5, size * set.r(0.8, 1.3)], MAT.THORN, set.r(0, 3)));
+  set.add(PR.ellipsoid([pos[0] + size * set.r(-0.5, 0.5), size * 0.55, pos[2] + size * set.r(-0.5, 0.5)], [size * 0.6, size * 0.4, size * 0.6], MAT.THORN));
+  for (let i = 0; i < 2; i++) {
+    const a = set.r(0, Math.PI * 2), l = size * set.r(0.9, 1.4);
+    set.add(PR.seg([pos[0], size * 0.5, pos[2]], [pos[0] + Math.cos(a) * l, size * set.r(0.8, 1.5), pos[2] + Math.sin(a) * l], 0.035 * size, i ? MAT.THORN : MAT.GLASS, 0.003));
+  }
+}
+// a barrel cactus: a ribbed drum
+function cactus(set, pos, h) {
+  set.obj().add(PR.tower([pos[0], 0, pos[2]], 0.34 * h, 0.2 * h, h, 11, MAT.THORN, set.r(0, 3)));
+}
+// a room cut away like a stage: floor, back wall, side walls, beams; the front left open to the camera
+function roomShell(set, w, d, h, m = MAT.STONE, o = {}) {
+  set.obj().add(PR.box([0, 0.04, -d / 2], [w, 0.05, d / 2 + 0.6], o.floor ?? MAT.STONE, 0, 0.01));
+  set.obj().add(PR.box([0, h / 2, -d - 0.3], [w + 0.6, h / 2, o.thick ?? 0.3], m, 0, 0.03));
+  for (const [x, y, hw, hh] of o.holes || []) set.add(PR.sub(PR.box([x, y, -d - 0.3], [hw, hh, (o.thick ?? 0.3) + 0.3], 0)));
+  for (const sx of [-1, 1]) set.obj().add(PR.box([sx * (w + 0.3), h / 2, -d / 2], [o.thick ?? 0.3, h / 2, d / 2 + 0.3], m, 0, 0.03));
+  if (o.beams) { set.obj(); for (let z = -d + 0.6; z <= 0.4; z += 1.6) set.add(PR.box([0, h + 0.1, z], [w + 0.3, 0.12, 0.14], MAT.WOOD, 0, 0.03)); }
+}
+// the Guild's hauler, nose toward local +x: a cab, a bed under a canvas hood, casks lashed down, eight woven wheels
+function haulerPrims(at, yaw, o = {}) {
+  const c = Math.cos(yaw), s = Math.sin(yaw);
+  const L = (x, y, z) => [at[0] + c * x - s * z, (at[1] || 0) + y, at[2] + s * x + c * z];
+  const out = [PR.box(L(0, 1.25, 0), [4.6, 0.32, 1.45], MAT.METAL, yaw, 0.12)];
+  if (o.open) {
+    // seen from aboard: the cab open behind, the hood rolled back to its hoops
+    out.push(PR.box(L(3.75, 3.2, 0), [0.95, 0.07, 1.4], MAT.METAL, yaw, 0.03), PR.box(L(4.6, 2.3, 0), [0.08, 0.75, 1.4], MAT.METAL, yaw, 0.05));
+    for (const z of [-1.35, 1.35]) out.push(PR.seg(L(2.85, 1.57, z), L(2.85, 3.2, z), 0.06, MAT.METAL), PR.seg(L(4.6, 1.57, z), L(4.6, 3.2, z), 0.06, MAT.METAL));
+    out.push(PR.ribs(L(-1.2, 1.57, 0), 5, 0.85, 1.3, 0.04, 0.05, 0, MAT.WOOD, yaw));
+    out.push(PR.box(L(3.4, 2.05, 0.35), [0.25, 0.04, 0.32], MAT.WOOD, yaw, 0.02));
+  } else {
+    out.push(PR.box(L(3.7, 2.35, 0), [0.95, 0.85, 1.35], MAT.METAL, yaw, 0.22), PR.box(L(4.63, 2.55, 0), [0.04, 0.3, 1.0], o.lamp ? MAT.LAMP : MAT.DARK, yaw, 0.02));
+    out.push(PR.capsule(L(-0.9, 2.15, 0), 1.18, 2.3, MAT.CLOTH, true, yaw));
+  }
+  out.push(PR.cyl(L(-3.6, 1.95, 0.7), 0.38, 0.38, MAT.WOOD), PR.cyl(L(-3.6, 1.95, -0.7), 0.38, 0.38, MAT.WOOD));
+  for (const x of [-3.4, -1.15, 1.15, 3.4]) for (const z of [-1.62, 1.62]) out.push(PR.torus(L(x, 0.64, z), 0.5, 0.15, 2, MAT.METAL, yaw));
+  out.push(PR.seg(L(3.0, 3.1, 0.9), L(3.0, 4.25, 0.9), 0.08, MAT.METAL));
+  return out;
+}
+
 // ---- the places
 const SETS = {
   hold(set) {
@@ -1196,7 +1306,9 @@ const SETS = {
     set.cam = { target: [0, 1.5, -3], dist: 19, pitch: 0.3, yaw: 0.15, maxDist: 30 };
     set.lines = false; set.dust = 0.8;
     set.obj().add(PR.wall([0, 1.6, -13], [13, 1.6, 0.5], 1.2, 0.5, MAT.STONE), PR.sub(PR.box([0, 1.4, -13], [1.4, 1.4, 0.8], 0)));
-    for (const sx of [-1, 1]) set.obj().add(PR.wall([sx * 13, 1.6, -3], [10.5, 1.6, 0.5], 1.2, 0.5, MAT.STONE, Math.PI / 2));
+    set.obj().add(PR.wall([-13, 1.6, -3], [10.5, 1.6, 0.5], 1.2, 0.5, MAT.STONE, Math.PI / 2));
+    set.obj().add(PR.wall([13, 1.6, -3], [10.5, 1.6, 0.5], 1.2, 0.5, MAT.STONE, Math.PI / 2), PR.sub(PR.box([13, 2.3, -1.0], [1.0, 1.45, 2.4], 0)));
+    set.obj(); for (let i = 0; i < 6; i++) set.add(PR.box([12.4 - set.r(0, 1.2), 0.18, -1.0 + set.r(-2.2, 2.2)], [0.32, 0.18, 0.24], MAT.STONE, set.r(0, 3), 0.04));
     set.obj().add(PR.wall([-10.5, 1.6, 7.4], [2.5, 1.6, 0.5], 1.2, 0.5, MAT.STONE), PR.sub(PR.box([-10, 1.2, 7.4], [0.8, 1.2, 0.8], 0)));
     set.obj();
     for (const sx of [-1, 1]) set.add(PR.cyl([sx * 2.6, 2.7, -13], 1.3, 2.7, MAT.STONE), PR.box([sx * 1.1, 1.4, -12.5], [0.85, 1.35, 0.08], MAT.WOOD, sx * 0.5, 0.02));
@@ -1225,7 +1337,8 @@ const SETS = {
     set.spots.sit = [{ p: [-11.3, -5.1], y: 0.44, face: [0, -1] }];
     set.spots.stand = [[-5.2, 3.4], [4.2, 4.6], [7.4, -2.2], [-6.4, -8.4], [6.4, -10.2]].map((p) => ({ p, y: 0 }));
     set.spots.items = [[8.6, -6], [-7.6, 2.8]].map((p) => ({ p, y: 0 }));
-    set.anchors = [{ re: /rack/i, p: [10.6, -6], tagH: 1.9 }];
+    set.anchors = [{ re: /rack/i, p: [10.6, -6], tagH: 1.9 }, { re: /works|raised wall|wall line/i, p: [13, -1.0], tagH: 3.6, pickR: 2.2, draw: true },
+      { re: /rubble/i, p: [11.2, 3.2], tagH: 1.4, pickR: 1.4, draw: true }];
     set.exitAt = [{ re: /salt road/i, p: [0, -14.6] }, { re: /hold/i, p: [-10, 8.2] }];
   },
 
@@ -1248,6 +1361,7 @@ const SETS = {
     set.spots.lookout = [{ p: [3.2, -10.5], y: 0 }];
     set.spots.sit = [{ p: [-4.8, 4.2], y: 0.62 }];
     set.spots.items = [[-2.0, -1.5], [2.6, 0.6]].map((p) => ({ p, y: 0 }));
+    set.spots.vehicle = [{ p: [0.8, -15], yaw: -Math.PI / 2 }];
   },
 
   landing(set) {
@@ -1266,7 +1380,7 @@ const SETS = {
     tent(set, [-11, 0, -12], 0.5, 1.1); tent(set, [-14, 0, -5.5], 1.4); tent(set, [12, 0, 1.5], -0.8, 0.95);
     set.obj().add(PR.box([2.2, 0.26, -2.8], [1.4, 0.16, 0.6], MAT.WOOD, 0.2, 0.03), PR.seg([0.7, 0.06, -2.1], [3.7, 0.06, -2.5], 0.05, MAT.WOOD), PR.seg([0.6, 0.06, -3.3], [3.6, 0.06, -3.7], 0.05, MAT.WOOD));
     bannerPole(set, [0.5, 0, -14], 6.2);
-    if (isDim()) fire(set, [-7, 0, 2.4]); else set.obj().add(PR.cyl([-7, 0.04, 2.4], 0.6, 0.04, MAT.DARK));
+    if (fireLit(set)) fire(set, [-7, 0, 2.4]); else set.obj().add(PR.cyl([-7, 0.04, 2.4], 0.6, 0.04, MAT.DARK));
     set.obj().add(PR.seg([-8.3, 0.18, 3.4], [-6.5, 0.18, 3.6], 0.16, MAT.WOOD));
     set.spots.you = { p: [0, 5], y: 0 };
     set.spots.work = [[-3.6, -3.4], [-1.5, -6.7], [3.0, -8.6], [-6.8, -2.9]].map((p) => ({ p, y: 0 }));
@@ -1274,6 +1388,7 @@ const SETS = {
     set.spots.sit = [{ p: [-7.4, 3.5], y: 0.34, face: [-7, 2.4] }];
     set.spots.lookout = [{ p: [8.4, -2.4], y: 0 }];
     set.spots.items = [[1.0, -1.0], [-2.6, -0.6]].map((p) => ({ p, y: 0 }));
+    set.spots.vehicle = [{ p: [-6.0, -14.5], yaw: 0.15 }];
     set.anchors = [{ re: /water casks/i, p: [-5, -5], tagH: 2.3, pickR: 2 }, { re: /tally post/i, p: [-1.5, -7.6], tagH: 3.5 }];
   },
 
@@ -1319,7 +1434,7 @@ const SETS = {
     set.obj().add(PR.box([0.6, 1.15, 6.2], [1.4, 1.15, 1.0], MAT.ROCK, 0.15, 0.4), PR.rock([0.6, 0.9, 6.2], [1.9, 1.2, 1.4], MAT.ROCK, 0.2, { noise: 0.2, freq: 0.9, strata: 0.2, sfreq: 4, blocky: 0.7 }));
     hoodoo(set, [-6.0, 0, 8.2], 4.6); hoodoo(set, [5.4, 0, 9.0], 3.4);
     ketCloths(set, [-4.4, 0, 3.4], [-1.4, 0, 5.2]);
-    if (isDim()) fire(set, [-1.4, 0, 1.6]); else set.obj().add(PR.cyl([-1.4, 0.04, 1.6], 0.6, 0.04, MAT.DARK));
+    if (fireLit(set)) fire(set, [-1.4, 0, 1.6]); else set.obj().add(PR.cyl([-1.4, 0.04, 1.6], 0.6, 0.04, MAT.DARK));
     // the cleft that goes down to the Deepwell
     set.obj().add(PR.rock([-7.0, 1.4, 5.0], [1.4, 1.6, 1.0], MAT.ROCK, 0.4, { noise: 0.2, freq: 0.8, strata: 0.16, sfreq: 3.5 }), PR.rock([-5.0, 1.2, 6.0], [1.3, 1.4, 1.1], MAT.ROCK, -0.3, { noise: 0.2, freq: 0.8, strata: 0.16, sfreq: 3.5 }), PR.box([-6.0, 1.0, 5.5], [0.35, 1.0, 0.7], MAT.DARK, 0.4, 0.1));
     set.obj().add(PR.sphere([5.9, 2.15, -1.1], 0.16, MAT.BONE), PR.seg([5.85, 2.25, -1.1], [5.7, 2.55, -1.35], 0.035, MAT.BONE, 0.015), PR.seg([5.95, 2.25, -1.1], [6.1, 2.55, -1.35], 0.035, MAT.BONE, 0.015), PR.box([5.9, 1.0, -1.1], [0.6, 1.0, 0.6], MAT.ROCK, 0.3, 0.25));
@@ -1348,7 +1463,7 @@ const SETS = {
       const a = -2.1 + i * 0.16, r = 10.6, x = Math.cos(a) * r, z = Math.sin(a) * r, y = 2.2 + set.r(0, 1.3);
       set.add(PR.seg([x, 6.6, z], [x, y + 0.14, z], 0.01, MAT.ROPE), PR.cyl([x, y, z], 0.09, 0.1, MAT.STONE));
     }
-    fire(set, [3.6, 0, 4.0], true);
+    if (fireLit(set, true)) fire(set, [3.6, 0, 4.0], true); else set.obj().add(PR.cyl([3.6, 0.04, 4.0], 0.6, 0.04, MAT.DARK));
     set.obj();
     for (let i = 0; i < 9; i++) { const a = set.r(0, Math.PI * 2), r = set.r(2, 11); set.add(PR.cone([Math.cos(a) * r, 6.6 - set.r(0.8, 1.8), Math.sin(a) * r], 0.02, set.r(0.15, 0.35), set.r(0.8, 1.8), MAT.CAVE)); }
     set.obj();
@@ -1431,6 +1546,359 @@ const SETS = {
     set.spots.items = [[1.2, -1.0], [-1.4, -2.0]].map((p) => ({ p, y: 0 }));
   },
 
+  guildyard(set) {
+    // a walled yard of baked brick: crawler sheds by the west wall, a tank on iron legs, the bunkhouse, the counting house
+    Object.assign(set.terr, { t0: [0.5, 22, 0, MAT.PAN] });
+    set.cam = { target: [0, 1.6, -2], dist: 21, pitch: 0.3, yaw: 0.22, maxDist: 34 };
+    set.lines = false; set.dust = 0.9; set.shimmer = 0.4;
+    set.obj().add(PR.box([0, 1.5, -11.5], [14.4, 1.5, 0.35], MAT.BRICK, 0, 0.04));
+    set.obj().add(PR.box([14.4, 1.5, -1.5], [0.35, 1.5, 10.3], MAT.BRICK, 0, 0.04));
+    set.obj().add(PR.box([-14.4, 1.5, -1.5], [0.35, 1.5, 10.3], MAT.BRICK, 0, 0.04), PR.sub(PR.box([-14.4, 1.4, 5.0], [0.6, 1.4, 1.6], 0)));
+    // the gate, stencilled with the Carriers' wheel, its leaves swung in
+    set.obj().add(PR.box([-13.2, 1.35, 6.55], [1.15, 1.3, 0.07], MAT.WOOD, -0.5, 0.02), PR.box([-13.2, 1.35, 3.45], [1.15, 1.3, 0.07], MAT.WOOD, 0.5, 0.02),
+      PR.torus([-12.9, 1.6, 3.0], 0.42, 0.04, 2, MAT.EXIT, 0.5));
+    // the bunkhouse along the north wall, one door, a slate beside it
+    set.obj().add(PR.box([1.5, 1.4, -9.6], [8.5, 1.4, 1.6], MAT.BRICK, 0, 0.05), PR.box([1.5, 2.95, -9.6], [8.8, 0.16, 1.9], MAT.WOOD, 0, 0.03),
+      PR.box([-2.5, 1.0, -7.98], [0.55, 1.0, 0.05], MAT.DARK, 0, 0.02), PR.box([-0.8, 1.5, -7.97], [0.45, 0.3, 0.02], MAT.DARK, 0, 0.01));
+    // the counting house: a squat brick box, one iron-banded door, no windows
+    set.obj().add(PR.box([11.2, 1.5, -3.5], [2.2, 1.5, 1.9], MAT.BRICK, 0, 0.06), PR.box([11.2, 3.08, -3.5], [2.4, 0.1, 2.1], MAT.BRICK, 0, 0.03),
+      PR.box([8.98, 1.05, -3.5], [0.05, 1.05, 0.5], MAT.WOOD, 0, 0.02));
+    for (const y of [0.45, 1.05, 1.65]) set.add(PR.box([8.93, y, -3.5], [0.03, 0.05, 0.52], MAT.METAL, 0, 0.01));
+    // crawler sheds open along the west wall
+    set.obj();
+    for (const z of [-9.5, -5.5, -1.5]) set.add(PR.seg([-8.4, 0, z], [-8.4, 4.7, z], 0.1, MAT.WOOD));
+    set.add(PR.box([-11.3, 4.8, -5.5], [3.2, 0.1, 4.4], MAT.TARP, 0, 0.03));
+    // the tank on iron legs, sweating in the middle of the yard
+    ironTank(set, [1.5, 0, -2.5], 1.3, 0.9, 2.2);
+    set.add(PR.seg([1.5, 2.2, -1.2], [1.5, 0.2, 0.2], 0.05, MAT.METAL));
+    set.obj(); cask(set, [4.6, 0, -6.4]); cask(set, [5.5, 0, -6.0]); set.add(PR.box([3.8, 0.35, -5.6], [0.4, 0.35, 0.4], MAT.WOOD, 0.4, 0.03));
+    if (fireLit(set, isNight())) brazier(set, [-2.4, 0, -6.6]);
+    set.spots.you = { p: [-6.5, 5.2], y: 0 };
+    set.spots.vehicle = [{ p: [-11.2, -4.6], yaw: Math.PI / 2 }];
+    set.spots.work = [[2.6, -1.2], [4.0, -5.6], [-6.8, -6.0], [0.4, -3.6]].map((p) => ({ p, y: 0 }));
+    set.spots.stand = [[-3.4, 2.0], [3.6, 1.0], [-1.0, -5.8], [6.0, 2.2], [-5.4, -1.6]].map((p) => ({ p, y: 0 }));
+    set.spots.lookout = [{ p: [-11.6, 3.2], y: 0, face: [-20, 5] }, { p: [7.4, -2.4], y: 0, face: [8.0, -3.5] }];
+    set.spots.shade = [[-9.6, -8.0], [-9.6, -2.8]].map((p) => ({ p, y: 0 }));
+    set.spots.items = [[2.0, 1.6], [-1.6, 0.6], [5.0, -1.0]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /tank/i, p: [1.5, -2.5], tagH: 5.4, pickR: 1.6 }];
+    set.exitAt = [{ re: /landing/i, p: [-15.6, 5.0] }, { re: /bunkhouse/i, p: [-2.5, -7.2] }, { re: /counting/i, p: [8.0, -3.5] }];
+  },
+
+  bunkhouse(set) {
+    // a long low room of cots and sea chests; skins on pegs, a rack of Guild arms, the yard's watch in chalk
+    set.cam = { target: [0, 1.3, -2.6], dist: 10.5, pitch: 0.26, yaw: 0.12, maxDist: 15 };
+    set.lines = false; set.indoor = true; set.dust = 0.9; set.shimmer = 0; set.exitR = 6; set.sunAz = 0.4; set.sunElev = 0.6;
+    roomShell(set, 7.5, 5.2, 2.7, MAT.BRICK, { floor: MAT.WOOD, holes: [[-4.0, 2.0, 0.4, 0.3], [3.0, 2.0, 0.4, 0.3]] });
+    set.obj(); for (const z of [-4.6, -3.1]) set.add(PR.box([0, 2.8, z], [7.8, 0.12, 0.14], MAT.WOOD, 0, 0.03));
+    set.windows = [[-4.0, 2.0, -5.5], [3.0, 2.0, -5.5]];
+    set.obj();
+    for (let i = 0; i < 5; i++) {
+      const x = -6 + i * 2.9;
+      set.add(PR.box([x, 0.42, -4.2], [0.45, 0.08, 1.0], MAT.WOOD, 0, 0.02), PR.box([x, 0.53, -4.2], [0.4, 0.05, 0.92], MAT.CLOTH, 0, 0.03));
+      set.add(PR.box([x, 0.28, -2.75], [0.38, 0.28, 0.26], MAT.WOOD, 0, 0.03), PR.box([x, 0.4, -2.74], [0.4, 0.03, 0.28], MAT.METAL, 0, 0.01));
+      set.add(PR.ellipsoid([x + 0.6, 1.75, -5.15], [0.18, 0.26, 0.12], MAT.CLOTH));
+    }
+    // the rack of Guild arms by the door, and the slate with the watch on it
+    set.obj().add(PR.box([7.0, 1.0, -1.4], [0.15, 1.0, 0.9], MAT.WOOD, 0, 0.02));
+    for (let i = 0; i < 4; i++) set.add(PR.seg([6.85, 0.1, -2.1 + i * 0.45], [6.9, 1.85, -2.0 + i * 0.45], 0.025, MAT.METAL));
+    set.add(PR.box([-6.0, 1.7, -5.48], [0.9, 0.55, 0.03], MAT.DARK, 0, 0.01));
+    for (let i = 0; i < 4; i++) set.add(PR.box([-6.3 + i * 0.2, 1.75 - (i % 2) * 0.15, -5.44], [0.06, 0.18, 0.005], MAT.BONE, 0, 0.002));
+    set.obj().add(PR.seg([0, 2.7, -2.4], [0, 2.1, -2.4], 0.01, MAT.ROPE), PR.sphere([0, 2.0, -2.4], 0.11, MAT.LAMP));
+    set.lights.push({ pos: [0, 1.9, -2.4], radius: 4.5, power: 0.7, flicker: 0.15 });
+    set.spots.you = { p: [-1.6, 0.4], y: 0 };
+    set.spots.sit = [-6, -3.1, -0.2, 2.7].map((x) => ({ p: [x, -2.75], y: 0.56, face: [x, 0] }));
+    set.spots.stand = [[1.6, -1.4], [-3.8, -1.2], [4.6, -1.0], [-5.6, 0.2]].map((p) => ({ p, y: 0 }));
+    set.spots.work = [[6.2, -1.4], [-6.0, -4.6]].map((p) => ({ p, y: 0 }));
+    set.spots.items = [[0.6, -3.4], [-2.2, -3.4], [3.6, -3.4]].map((p) => ({ p, y: 0 }));
+    set.exitAt = [{ re: /yard/i, p: [7.0, 0.6] }];
+  },
+
+  counting(set) {
+    // a brick box with walls an arm thick, one iron-banded door, a lamp on a chain, the strongbox bolted down
+    set.cam = { target: [0, 1.2, -1.8], dist: 8.2, pitch: 0.3, yaw: -0.25, maxDist: 10 };
+    set.lines = false; set.indoor = true; set.dust = 0.6; set.shimmer = 0; set.exitR = 4.5; set.sunAz = 0.5; set.sunElev = 0.4;
+    roomShell(set, 3.6, 3.6, 2.8, MAT.BRICK, { thick: 0.6, floor: MAT.BRICK });
+    set.obj().add(PR.box([-3.9, 1.05, -1.2], [0.08, 1.05, 0.55], MAT.WOOD, 0, 0.02));
+    for (const y of [0.4, 1.05, 1.7]) set.add(PR.box([-3.82, y, -1.2], [0.04, 0.05, 0.57], MAT.METAL, 0, 0.01));
+    set.obj().add(PR.seg([0.4, 2.8, -1.6], [0.4, 2.0, -1.6], 0.015, MAT.METAL), PR.sphere([0.4, 1.9, -1.6], 0.13, MAT.LAMP));
+    set.lights.push({ pos: [0.4, 1.8, -1.6], radius: 4.2, power: 1.0, flicker: 0.12 });
+    // a counting table, a scale, a tally slate
+    set.obj().add(PR.box([2.0, 0.8, -2.6], [1.0, 0.05, 0.5], MAT.WOOD, 0, 0.02), PR.seg([1.2, 0, -2.3], [1.2, 0.76, -2.3], 0.04, MAT.WOOD), PR.seg([2.8, 0, -2.9], [2.8, 0.76, -2.9], 0.04, MAT.WOOD));
+    set.add(PR.seg([2.2, 0.85, -2.6], [2.2, 1.25, -2.6], 0.015, MAT.BRASS), PR.seg([1.9, 1.25, -2.6], [2.5, 1.25, -2.6], 0.012, MAT.BRASS), PR.cyl([1.9, 1.05, -2.6], 0.1, 0.01, MAT.BRASS), PR.cyl([2.5, 1.05, -2.6], 0.1, 0.01, MAT.BRASS));
+    set.add(PR.box([1.5, 0.87, -2.5], [0.2, 0.012, 0.14], MAT.DARK, 0.3, 0.004));
+    set.obj(); for (let i = 0; i < 3; i++) set.add(PR.box([-2.4 + i * 0.05, 0.35 + i * 0.36, -3.4], [0.6, 0.02, 0.18], MAT.WOOD, 0, 0.01));
+    set.spots.you = { p: [-1.2, 0.6], y: 0 };
+    set.spots.work = [{ p: [2.0, -1.8], y: 0, face: [2.0, -2.6] }];
+    set.spots.stand = [[-2.2, -0.6], [1.4, 0.2], [-0.6, -2.4]].map((p) => ({ p, y: 0 }));
+    set.spots.items = [[-0.4, -2.8], [0.8, -0.6]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /strongbox|chest|box/i, p: [-0.6, -2.9], tagH: 1.3, pickR: 0.9, draw: true }];
+    set.exitAt = [{ re: /yard/i, p: [-3.2, -1.2] }];
+  },
+
+  drycamp(set) {
+    // a hollow behind a rib of black rock: three low tents, picket lines, a small fire, an iron tank, a furled pennant
+    Object.assign(set.terr, { t0: [1.7, 10, 10, MAT.SAND] });
+    set.cam = { target: [0, 1.4, -3], dist: 18, pitch: 0.24, yaw: -0.2, maxDist: 32 };
+    set.dust = 0.8; set.shimmer = 0.5;
+    cliffLine(set, [-26, -17], [24, -15], 6.5, 5, 0, MAT.CAVE);
+    set.obj().add(PR.rock([-15, 2, -11], [4, 2.6, 2.5], MAT.CAVE, 0.3, { noise: 0.3, freq: 0.7, strata: 0.3, sfreq: 3, blocky: 0.8 }));
+    tent(set, [-5.5, 0, -7.5], 0.15, 0.8); tent(set, [-1.0, 0, -9.0], -0.1, 0.8); tent(set, [3.6, 0, -7.6], 0.25, 0.8);
+    pickets(set, [6.5, -4], [12.5, -1.5], 6);
+    ironTank(set, [-8.5, 0, -3.5], 1.2, 0.8, 0);
+    // the pennant with a well and a bar across it, furled on a spear
+    set.obj().add(PR.seg([-2.8, 0, -4.6], [-2.75, 3.4, -4.6], 0.035, MAT.WOOD), PR.cone([-2.75, 3.4, -4.6], 0.05, 0.002, 0.3, MAT.METAL),
+      PR.cyl([-2.75, 2.5, -4.6], 0.09, 0.6, MAT.BANNER));
+    if (fireLit(set)) fire(set, [0.6, 0, -2.8]); else set.obj().add(PR.cyl([0.6, 0.04, -2.8], 0.45, 0.04, MAT.DARK));
+    set.spots.you = { p: [0.4, 4.6], y: 0 };
+    set.spots.sit = [{ p: [-0.4, -2.0], y: 0, face: [0.6, -2.8] }, { p: [1.7, -2.2], y: 0, face: [0.6, -2.8] }];
+    set.spots.stand = [[-3.6, -1.6], [2.8, -0.6], [-6.0, -5.0], [5.4, -3.8], [-1.2, 0.8]].map((p) => ({ p, y: 0 }));
+    set.spots.work = [[-7.2, -2.4], [8.6, -2.4]].map((p) => ({ p, y: 0 }));
+    set.spots.lookout = [{ p: [9.8, -9.5], y: 0 }];
+    set.spots.shade = [{ p: [-8.6, -5.4], y: 0 }];
+    set.spots.items = [[-2.0, 1.2], [2.4, 1.6]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /tank/i, p: [-8.5, -3.5], tagH: 2.4, pickR: 1.4 }];
+  },
+
+  saltworks(set) {
+    // brine pans gone to crust, a collapsed boiling shed, a seep strained through cloth into a stone trough
+    Object.assign(set.terr, { t0: [0.6, 16, 0, MAT.PAN], t4: [0, 0, 1, 0] });
+    set.cam = { target: [0, 1.2, -3], dist: 19, pitch: 0.27, yaw: 0.25, maxDist: 32 };
+    set.shimmer = 0.9; set.dust = 0.8; set.lines = false;
+    cliffLine(set, [-28, -18], [-12, -27], 8, 6); cliffLine(set, [-14, -27], [16, -30], 7, 6);
+    set.obj();
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+      const x = -9 + i * 4.2, z = -8 + j * 3.6;
+      set.add(PR.box([x, 0.05, z], [1.8, 0.05, 1.5], MAT.SALT, 0, 0.01), PR.box([x, 0.12, z - 1.55], [1.9, 0.12, 0.08], MAT.STONE, 0, 0.02), PR.box([x - 1.85, 0.12, z], [0.08, 0.12, 1.6], MAT.STONE, 0, 0.02));
+    }
+    // the boiling shed, down: posts standing and fallen, a rusted pan on its stones
+    set.obj().add(PR.seg([5.5, 0, -6.5], [5.5, 2.8, -6.5], 0.09, MAT.WOOD), PR.seg([9.5, 0, -6.5], [9.4, 2.6, -6.4], 0.09, MAT.WOOD), PR.seg([5.5, 0, -2.5], [5.6, 2.2, -2.6], 0.09, MAT.WOOD),
+      PR.seg([5.5, 2.8, -6.5], [9.4, 2.6, -6.4], 0.08, MAT.WOOD), PR.seg([9.4, 2.6, -6.4], [10.6, 0.1, -3.0], 0.08, MAT.WOOD), PR.seg([5.6, 2.2, -2.6], [8.2, 0.15, -1.6], 0.08, MAT.WOOD));
+    set.add(PR.box([7.4, 2.4, -6.2], [2.0, 0.06, 1.0], MAT.TARP, 0, 0.02));
+    set.obj().add(PR.cyl([7.6, 0.55, -4.4], 1.1, 0.3, MAT.METAL));
+    for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2; set.add(PR.sphere([7.6 + Math.cos(a) * 1.0, 0.18, -4.4 + Math.sin(a) * 1.0], 0.22, MAT.STONE)); }
+    // the seep at the foot of the rock, strained through cloth into a trough
+    set.obj().add(PR.box([-14.2, 0.35, -11.5], [1.4, 0.35, 0.5], MAT.STONE, 0.5, 0.05), PR.box([-14.2, 0.62, -11.5], [1.25, 0.04, 0.38], MAT.WATER, 0.5, 0.01),
+      PR.seg([-15.4, 0, -12.8], [-15.4, 1.4, -12.8], 0.03, MAT.WOOD), PR.seg([-13.0, 0, -13.6], [-13.0, 1.4, -13.6], 0.03, MAT.WOOD),
+      PR.banner([-14.2, 1.15, -13.2], 0.55, 0.32, 0.05, false, MAT.CLOTH, 0.5), PR.cyl([-14.6, 0.02, -12.6], 1.4, 0.02, MAT.DARK));
+    set.spots.you = { p: [2.0, 5.0], y: 0 };
+    set.spots.shade = [[6.4, -4.2], [8.6, -5.6], [5.8, -3.0], [9.4, -3.6], [7.0, -5.8]].map((p) => ({ p, y: 0, face: [2, 4] }));
+    set.spots.work = [[-13.0, -10.6], [-6.0, -4.6]].map((p) => ({ p, y: 0, kneel: true }));
+    set.spots.stand = [[0.6, -1.4], [-3.4, -0.6], [3.2, 1.0], [-1.0, 2.6]].map((p) => ({ p, y: 0 }));
+    set.spots.vehicle = [{ p: [11.5, 6], yaw: -Math.PI / 2 }];
+    set.spots.items = [[-1.8, 1.0], [1.6, -0.2]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /seep|trough/i, p: [-14.2, -11.5], tagH: 1.6, pickR: 1.4 }];
+  },
+
+  hollow(set) {
+    // a long hollow under a second rib of black rock: fire rings, picket stakes, the sand trodden in a ring
+    const full = /horses|riders in|full of/i.test(set.here.state?.description || '');
+    Object.assign(set.terr, { t0: [1.4, 13, 10, MAT.SAND], t4: [6.5, 0, 0, 0] });
+    set.cam = { target: [0, 1.4, -3], dist: 20, pitch: 0.24, yaw: 0.15, maxDist: 34 };
+    set.dust = full ? 1.3 : 0.8; set.shimmer = 0.4;
+    cliffLine(set, [-28, -16], [26, -18], 8, 6, 0, MAT.CAVE);
+    set.obj().add(PR.rock([16, 2.4, -10], [3.5, 2.8, 2.5], MAT.CAVE, -0.3, { noise: 0.3, freq: 0.7, strata: 0.3, sfreq: 3, blocky: 0.8 }));
+    const rings = [[-6, -5], [3.5, -7.5], [9, -3]];
+    for (const [x, z] of rings) {
+      if (full && fireLit(set, true)) fire(set, [x, 0, z], x > 8);
+      else { set.obj(); for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2; set.add(PR.sphere([x + Math.cos(a) * 0.55, 0.06, z + Math.sin(a) * 0.55], 0.12, MAT.DARK)); } }
+    }
+    pickets(set, [-13, -2.6], [-4, -5.4], 7);
+    if (full) {
+      for (let i = 0; i < 5; i++) horse(set, [-12.4 + i * 2.2, 0, -1.4 - i * 0.62], (i % 2 ? -0.7 : -2.4) + set.r(-0.2, 0.2), i % 2 === 0);
+      bannerPole(set, [10.2, 0, -4.4], 4.6);
+      // the tank on its wheeled bed at the end of the picket line
+      set.obj().add(PR.box([-15.5, 0.9, -5.5], [1.7, 0.12, 0.9], MAT.WOOD, 0.1, 0.03));
+      for (const [dx, dz] of [[-1.2, 1], [1.2, 1], [-1.2, -1], [1.2, -1]]) set.add(PR.torus([-15.5 + dx, 0.55, -5.5 + dz * 0.95], 0.5, 0.07, 2, MAT.WOOD, 0.1));
+      ironTank(set, [-15.5, 0.9, -5.5], 0.85, 0.6, 0);
+    }
+    set.spots.you = { p: [0, 5.6], y: 0 };
+    set.spots.sit = rings.flatMap(([x, z]) => [{ p: [x - 1.1, z + 0.6], y: 0, face: [x, z] }, { p: [x + 1.0, z + 0.7], y: 0, face: [x, z] }]);
+    set.spots.overlook = [{ p: [9.4, -2.0], y: 0, face: [9, -3] }];
+    set.spots.stand = [[-2.4, 0.6], [2.6, -1.8], [-8.6, -3.0], [5.6, 1.4], [12.4, -1.0]].map((p) => ({ p, y: 0 }));
+    set.spots.lookout = [{ p: [14.5, -6.5], y: 0 }];
+    set.spots.prisoner = [{ p: [-14.3, -4.3], y: 0, face: [0, 0] }];
+    set.spots.items = [[-1.0, 2.0], [1.8, 1.4]].map((p) => ({ p, y: 0 }));
+  },
+
+  thornbrake(set) {
+    // glassthorn and barrel cactus in the lee of the Scar: spines that glitter, paths that close behind you
+    Object.assign(set.terr, { t0: [0.8, 12, 0, MAT.SAND] });
+    set.cam = { target: [0, 1.3, -3], dist: 17, pitch: 0.26, yaw: -0.1, maxDist: 30 };
+    set.dust = 0.7; set.shimmer = 0.5;
+    cliffLine(set, [-16, -40], [-16, 14], 22, 7);
+    for (let g = 0; g < 5; g++) {
+      for (let i = 0; i < 6; i++) {
+        const x = set.r(-13, 15), z = set.r(-22, 7);
+        if (Math.abs(x - z * 0.15) < 2.4 && z > -16) continue;   // the trodden run stays open
+        if (set.R() < 0.75) thornBush(set, [x, 0, z], set.r(0.8, 1.8)); else cactus(set, [x, 0, z], set.r(0.6, 1.3));
+      }
+    }
+    // the roofless house in the thick of it
+    set.obj().add(PR.box([3, 1.3, -24], [3.5, 1.3, 0.3], MAT.STONE, 0.1, 0.03), PR.box([-0.4, 1.0, -21.5], [0.3, 1.0, 2.6], MAT.STONE, 0.1, 0.03),
+      PR.box([6.4, 1.15, -21.6], [0.3, 1.15, 2.6], MAT.STONE, 0.1, 0.03));
+    set.spots.you = { p: [0.4, 5.0], y: 0 };
+    set.spots.stand = [[1.2, 0.4], [-1.2, -2.4], [0.4, -6.0], [2.2, -9.6]].map((p) => ({ p, y: 0 }));
+    set.spots.lookout = [{ p: [1.0, -13.5], y: 0 }];
+    set.spots.items = [[-0.6, -1.0], [1.6, -4.4]].map((p) => ({ p, y: 0 }));
+    set.exitAt = [{ re: /steading/i, p: [1.8, -17.5] }, { re: /gate yard|yard/i, p: [-2.6, 6.5] }];
+  },
+
+  steading(set) {
+    // a roofless house of fitted stone: a hearth, a cupboard on its pegs, a trapdoor with a lock on its hasp
+    Object.assign(set.terr, { t0: [0.6, 16, 0, MAT.SAND] });
+    set.cam = { target: [0, 1.2, -2.8], dist: 12, pitch: 0.36, yaw: 0.22, maxDist: 20 };
+    set.lines = false; set.dust = 0.8; set.shimmer = 0.3;
+    // sand blown in over what was the floor; a few flags still show
+    set.obj(); for (let i = 0; i < 7; i++) set.add(PR.box([set.r(-4, 4), 0.03, set.r(-5.5, 0)], [set.r(0.3, 0.6), 0.04, set.r(0.25, 0.5)], MAT.STONE, set.r(0, 3), 0.02));
+    set.obj().add(PR.box([0, 1.5, -6.3], [5.3, 1.5, 0.35], MAT.STONE, 0, 0.03), PR.box([-3.6, 3.15, -6.3], [1.2, 0.25, 0.35], MAT.STONE, 0, 0.03), PR.box([2.4, 3.05, -6.3], [0.8, 0.15, 0.35], MAT.STONE, 0, 0.03));
+    set.obj().add(PR.box([-5.25, 1.0, -2.6], [0.35, 1.0, 3.9], MAT.STONE, 0, 0.03), PR.box([-5.25, 2.2, -4.6], [0.35, 0.3, 1.6], MAT.STONE, 0, 0.03));
+    set.obj().add(PR.box([5.25, 1.4, -2.6], [0.35, 1.4, 3.9], MAT.STONE, 0, 0.03), PR.sub(PR.box([5.25, 1.0, -1.0], [0.7, 1.0, 0.65], 0)),
+      PR.box([5.25, 2.12, -1.0], [0.42, 0.13, 0.9], MAT.STONE, 0, 0.02), PR.box([4.82, 2.12, -1.0], [0.02, 0.05, 0.5], MAT.DARK, 0, 0.005));
+    set.obj().add(PR.box([-4.4, 0.35, 1.25], [0.9, 0.35, 0.35], MAT.STONE, 0, 0.03), PR.box([4.6, 0.22, 1.25], [0.6, 0.22, 0.35], MAT.STONE, 0, 0.03),
+      PR.box([-2.8, 0.12, 1.6], [0.35, 0.12, 0.3], MAT.STONE, 0.6, 0.03), PR.box([2.4, 0.1, 1.9], [0.3, 0.1, 0.25], MAT.STONE, 1.1, 0.03));
+    // the hearth against the west wall, the cupboard on the north
+    set.obj().add(PR.box([-4.4, 0.6, -3.5], [0.6, 0.6, 1.0], MAT.STONE, 0, 0.04), PR.box([-4.6, 2.2, -3.5], [0.4, 1.0, 0.6], MAT.STONE, 0, 0.04));
+    if (fireLit(set)) {
+      set.add(PR.flame([-4.1, 0.3, -3.5], 0.2, 0.55, 2));
+      set.lights.push({ pos: [-3.8, 0.9, -3.5], radius: 4.5, power: 1.0, flicker: 1 });
+    }
+    set.obj().add(PR.box([1.8, 1.3, -5.75], [0.8, 1.1, 0.22], MAT.WOOD, 0, 0.03), PR.box([1.8, 1.3, -5.5], [0.02, 1.0, 0.02], MAT.DARK, 0, 0.005));
+    // the trapdoor and its lock
+    set.obj().add(PR.box([0.6, 0.1, -2.6], [0.75, 0.04, 0.55], MAT.WOOD, 0.1, 0.02), PR.box([1.25, 0.17, -2.6], [0.06, 0.06, 0.1], MAT.METAL, 0.1, 0.01));
+    set.obj();
+    for (let i = 0; i < 9; i++) {
+      const a = set.r(0, Math.PI * 2), r = set.r(8, 15);
+      if (Math.sin(a) > 0.4 || Math.abs(Math.cos(a)) < 0.3 && Math.sin(a) > 0) continue;
+      if (set.R() < 0.7) thornBush(set, [Math.cos(a) * r, 0, Math.sin(a) * r], set.r(0.9, 1.8)); else cactus(set, [Math.cos(a) * r, 0, Math.sin(a) * r], set.r(0.7, 1.2));
+    }
+    set.spots.you = { p: [-0.6, 0.0], y: 0 };
+    set.spots.sit = [{ p: [-3.4, -3.0], y: 0, face: [-4.1, -3.5] }];
+    set.spots.stand = [[1.8, -1.0], [-1.8, -1.8], [3.2, -3.6], [-2.2, -4.8]].map((p) => ({ p, y: 0 }));
+    set.spots.work = [{ p: [1.8, -4.9], y: 0, face: [1.8, -5.8] }];
+    set.spots.items = [[-1.2, -3.2], [2.6, -2.0]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /cupboard/i, p: [1.8, -5.6], tagH: 2.6 }, { re: /hearth/i, p: [-4.4, -3.5], tagH: 1.6 }, { re: /trapdoor|hasp|lock/i, p: [0.6, -2.6], tagH: 0.8 }];
+    set.exitAt = [{ re: /cellar/i, p: [-0.4, -2.4] }, { re: /thornbrake|thorn/i, p: [7.0, -1.0] }];
+  },
+
+  cellar(set) {
+    // a root cellar cut into the rock: shelves, jars, a cask in the corner, light only down the trap
+    Object.assign(set.terr, { t0: [0, 30, 0, MAT.CAVE], t3: [1, 2.9, 0, 5.2] });
+    set.cam = { target: [0, 1.0, -0.6], dist: 5.8, pitch: 0.24, yaw: 0.3, maxDist: 6.5 };
+    set.cave = true; set.indoor = true; set.lines = false; set.dust = 1.1; set.shimmer = 0; set.exitR = 3.5;
+    set.shafts.push({ a: [0.6, 3.0, 0.8], b: [0.8, 0, 0.6], r: 0.55, power: 0.75, hole: true });
+    set.obj().add(PR.seg([0.4, 0, 0.8], [0.5, 2.9, 0.75], 0.04, MAT.WOOD), PR.seg([1.0, 0, 0.8], [1.1, 2.9, 0.75], 0.04, MAT.WOOD));
+    for (let i = 0; i < 5; i++) set.add(PR.seg([0.42 + i * 0.02, 0.4 + i * 0.5, 0.79], [1.02 + i * 0.02, 0.4 + i * 0.5, 0.79], 0.025, MAT.WOOD));
+    set.obj();
+    for (let s = 0; s < 3; s++) {
+      set.add(PR.box([-1.2, 0.45 + s * 0.65, -3.9], [1.8, 0.04, 0.32], MAT.WOOD, 0, 0.01));
+      for (let j = 0; j < 5; j++) set.add(PR.ellipsoid([-2.6 + j * 0.65 + set.r(-0.1, 0.1), 0.62 + s * 0.65, -3.9], [0.14, 0.17, 0.14], j % 2 ? MAT.STONE : MAT.BRASS));
+    }
+    set.obj(); cask(set, [2.6, 0, -2.9], 0.45, 0.6);
+    set.spots.you = { p: [-0.9, 0.5], y: 0 };
+    set.spots.stand = [[-1.6, -1.2], [1.6, -1.4]].map((p) => ({ p, y: 0 }));
+    set.spots.items = [[-0.6, -1.8], [1.0, -2.2]].map((p) => ({ p, y: 0 }));
+    set.exitAt = [{ re: /steading/i, p: [1.9, 0.1] }];
+  },
+
+  weeping(set) {
+    // a cleft in the Scar wall: water down fern and moss into a stone basin, a crown over a closed eye, a hum
+    Object.assign(set.terr, { t0: [0.3, 14, 0, MAT.SAND] });
+    set.cam = { target: [0, 1.6, -5], dist: 13, pitch: 0.2, yaw: 0, maxDist: 18 };
+    set.lines = false; set.dust = 1.0; set.shimmer = 0.1; set.sunAz = 0; set.sunElev = 1.25;
+    set.obj();
+    for (let i = 0; i < 6; i++) {
+      const z = -14 + i * 3.6, w = 2.6 + i * 0.35;
+      for (const sx of [-1, 1]) set.add(PR.rock([sx * (w + 2.2), 8, z], [2.4, 9, 2.0], MAT.ROCK, set.r(-0.1, 0.1), { noise: 0.4, freq: 0.7, strata: 0.4, sfreq: 2.4, blocky: 0.85 }));
+    }
+    set.obj().add(PR.rock([0, 8, -17.5], [5, 9, 2], MAT.ROCK, 0, { noise: 0.35, freq: 0.7, strata: 0.4, sfreq: 2.4, blocky: 0.85 }));
+    // moss and fern down the back wall, the water over them, the basin at the foot
+    set.obj();
+    for (let i = 0; i < 8; i++) set.add(PR.ellipsoid([set.r(-1.6, 1.6), set.r(0.6, 4.2), -15.3 + set.r(0, 0.4)], [set.r(0.4, 0.8), set.r(0.2, 0.4), 0.18], MAT.THORN));
+    set.add(PR.seg([0.2, 5.2, -15.2], [0.1, 1.0, -14.6], 0.05, MAT.WATER), PR.well([0, 0, -13.8], 1.15, 0.9, 0.55, MAT.STONE), PR.cyl([0, 0.42, -13.8], 0.9, 0.05, MAT.WATER));
+    set.dyn.push((t) => [0, 1, 2].map((i) => { const k = ((t * 0.7 + i / 3) % 1); return PR.sphere([0.12, 5.0 - k * k * 4.5, -14.8 + k * 0.3], 0.035, MAT.WATER); }));
+    // the crown over a closed eye, worn soft into the rock above the basin
+    set.obj().add(PR.ellipsoid([0, 2.7, -15.25], [0.42, 0.16, 0.08], MAT.STONE), PR.seg([-0.38, 2.7, -15.18], [0.38, 2.7, -15.18], 0.02, MAT.DARK),
+      PR.box([0, 3.12, -15.25], [0.36, 0.05, 0.08], MAT.STONE, 0, 0.02));
+    for (const x of [-0.3, 0, 0.3]) set.add(PR.cone([x, 3.15, -15.25], 0.07, 0.01, 0.24, MAT.STONE));
+    set.obj().add(PR.flock([0, 1.6, -13.2], 1.2, 6, 1.6, 0.06));
+    set.spots.you = { p: [0.2, 1.2], y: 0 };
+    set.spots.stand = [[-1.2, -3.0], [1.4, -6.2], [-1.0, -9.6]].map((p) => ({ p, y: 0 }));
+    set.spots.work = [{ p: [0.8, -12.4], y: 0, kneel: true, face: [0, -13.8] }];
+    set.spots.sit = [{ p: [-1.5, -12.2], y: 0, face: [0, -13.8] }];
+    set.spots.items = [[0.6, -4.4], [-0.6, -7.6]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /basin|spring|water/i, p: [0, -13.8], tagH: 1.4, pickR: 1.3 }];
+    set.exitAt = [{ re: /salt road|road/i, p: [1.6, 6.6] }];
+  },
+
+  lowwell(set) {
+    // a hollow at the ridge's south foot: a well-head of fitted stone over a dry throat, four cairns, nobody drinks
+    Object.assign(set.terr, { t0: [1.2, 9, 10, MAT.SAND] });
+    set.cam = { target: [0, 1.3, -2.5], dist: 15, pitch: 0.24, yaw: 0.1, maxDist: 26 };
+    set.dust = 0.7; set.shimmer = 0.4;
+    cliffLine(set, [-30, -21], [30, -24], 11, 7);
+    set.obj().add(PR.well([0, 0, -4], 1.3, 0.85, 0.85, MAT.STONE), PR.cyl([0, 0.2, -4], 0.84, 0.2, MAT.DARK),
+      PR.seg([-1.15, 0.8, -4], [-1.1, 2.6, -4], 0.07, MAT.WOOD), PR.seg([1.15, 0.8, -4], [1.1, 2.6, -4], 0.07, MAT.WOOD), PR.seg([-1.25, 2.55, -4], [1.25, 2.55, -4], 0.06, MAT.WOOD));
+    set.obj();
+    for (let i = 0; i < 4; i++) for (let k = 0; k < 3; k++) set.add(PR.sphere([3.2 + i * 1.1, 0.2 + k * 0.3, -2.6 + i * 0.25], 0.32 - k * 0.07, MAT.STONE));
+    set.obj(); for (let i = 0; i < 5; i++) boulder(set, [set.r(-12, 12), 0, set.r(-11, -7)], set.r(0.6, 1.5));
+    set.landmark = [0, 0, -4];
+    set.spots.you = { p: [0, 4.2], y: 0 };
+    set.spots.stand = [[-2.4, -1.6], [2.0, -0.4], [-4.6, -4.0], [6.8, -1.0]].map((p) => ({ p, y: 0 }));
+    set.spots.sit = [{ p: [-1.6, -2.2], y: 0, face: [0, -4] }];
+    set.spots.items = [[-1.0, 0.8], [1.6, 1.4]].map((p) => ({ p, y: 0 }));
+    set.anchors = [{ re: /well-head|well's head|well head/i, p: [0, -4], tagH: 3.0, pickR: 1.5 }, { re: /cairn/i, p: [4.8, -2.2], tagH: 1.5, pickR: 1.8 }];
+  },
+
+  lee(set) {
+    // the lee of a dead hauler beside the road: a rusted flank, sand blown smooth against it, a hollow where someone sleeps
+    Object.assign(set.terr, { t0: [1.2, 8, 14, MAT.SAND], t1: [0, 0, 2.2, 0.06], t3: [0, 0, 1, 0], t4: [0, 1, 0, 0] });
+    set.cam = { target: [-2, 1.4, -2], dist: 16, pitch: 0.24, yaw: 0.45, maxDist: 30 };
+    set.dust = 1.0; set.shimmer = 0.7;
+    crawler(set, [-6.5, 0, -4.5], 0.05, 'side');
+    set.obj().add(PR.rock([-6.0, 0.2, -1.7], [5.2, 0.9, 1.7], MAT.SAND, 0.05, { noise: 0.04, freq: 1, strata: 0, sfreq: 1, blocky: 0 }),
+      PR.box([-5.0, 0.12, -1.0], [1.0, 0.04, 0.45], MAT.CLOTH, 0.1, 0.03));
+    cliffLine(set, [-22, -50], [-22, 20], 18, 7);
+    for (const z of [-24, 10]) waystone(set, [3.2, 0, z], 2.3);
+    set.spots.you = { p: [0.6, 4.4], y: 0 };
+    set.spots.shade = [[-4.4, -1.2], [-7.4, -1.4]].map((p) => ({ p, y: 0, face: [0, 4] }));
+    set.spots.sit = [{ p: [-5.6, -1.6], y: 0.25, face: [0, 2] }];
+    set.spots.stand = [[0.8, -1.8], [-1.8, 1.2], [2.4, -5.4]].map((p) => ({ p, y: 0 }));
+    set.spots.vehicle = [{ p: [0.9, -16], yaw: -Math.PI / 2 }];
+    set.spots.items = [[-2.4, -0.8], [-1.2, 2.2]].map((p) => ({ p, y: 0 }));
+    set.exitAt = [{ re: /salt road|road/i, p: [4.0, -1.0] }];
+  },
+
+  deck(set) {
+    // aboard a Guild crawler: the bed underfoot, the hood rolled back to its hoops, the cab ahead, the road going by
+    const st = set.here.state || {};
+    const moving = !!st.moving;
+    const over = (set.here.breadcrumb || []).slice(-1)[0]?.name || '';
+    const glass = /flats|glass/i.test(over);
+    Object.assign(set.terr, glass ? { t0: [1.6, 9, 10, MAT.GLASS], t1: [1, 0, 0, 0], t4: [0, 0, 1, 0] } : { t0: [1.3, 9, 12, MAT.SAND], t1: [0, 0, 2.6, 0], t3: [0, 0, 1, 0], t4: [0, 1, 0, 0] });
+    set.cam = { target: [0, 2.6, 0.2], dist: 10, pitch: 0.3, yaw: 0.42, maxDist: 15 };
+    set.floor = 1.6; set.exitR = 6; set.dust = moving ? 1.8 : 0.7; set.shimmer = 0.6; set.lines = glass;
+    set.obj().add(...haulerPrims([0, 0, 0], -Math.PI / 2, { open: true }));
+    set.obj().add(PR.torus([0.35, 2.55, -3.05], 0.32, 0.035, 2, MAT.BRASS), PR.seg([0.35, 2.55, -3.05], [0.35, 2.1, -3.4], 0.03, MAT.METAL));
+    // the road goes by: waystones and stones slide past while it rolls
+    const speed = moving ? 6 : 0;
+    set.dyn.push((t) => {
+      const out = [];
+      for (let i = 0; i < 6; i++) {
+        const z = (((t * speed + i * 13 + (i % 2) * 6) % 78) + 78) % 78 - 56;
+        const x = (i % 2 ? 1 : -1) * (5.5 + ((i * 7) % 4));
+        if (i % 3 === 0) out.push(PR.box([x, 1.15, z], [0.45, 1.15, 0.32], MAT.STONE, 0.3, 0.05), PR.box([x, 1.6, z], [0.47, 0.04, 0.34], MAT.EXIT, 0.3, 0.02));
+        else out.push(PR.sphere([x, 0.25, z], 0.5 + (i % 3) * 0.3, MAT.ROCK));
+      }
+      return out;
+    });
+    set.landmark = [0, 0, -90];
+    set.spots.you = { p: [0.6, 2.2], y: 0, face: [0, -90] };
+    set.spots.driver = [{ p: [0.35, -2.5], y: 0.55, face: [0.35, -10] }];
+    set.spots.sit = [{ p: [-0.75, 3.0], y: 0.75, face: [1, 3] }, { p: [0.8, 3.4], y: 0.75, face: [-1, 3] }];
+    set.spots.stand = [[-0.6, 0.6], [0.7, -0.8], [-0.6, -1.8], [0.4, 3.9]].map((p) => ({ p, y: 0 }));
+    set.spots.items = [[-0.5, 1.6], [0.6, 1.0]].map((p) => ({ p, y: 0 }));
+  },
+
   dunes(set) {
     Object.assign(set.terr, { t0: [1.6, 6, 10, MAT.SAND] });
     set.obj(); for (let i = 0; i < 4; i++) { const a = set.r(0, Math.PI * 2), r = set.r(7, 14); boulder(set, [Math.cos(a) * r, 0, Math.sin(a) * r], set.r(0.8, 2.0)); }
@@ -1445,7 +1913,7 @@ function buildSet(st) {
   const kind = setKind(st.here);
   const set = newSet(kind, st.here);
   SETS[kind](set, st);
-  if (set.groups.length > MAXG - 14) mergeGroups(set, MAXG - 14);
+  if (set.groups.length > STATIC_G) mergeGroups(set, STATIC_G);
   return set;
 }
 // keep the static groups under budget by merging the closest pairs (never ones that carve)
@@ -1500,13 +1968,21 @@ function bodyStyle(e) {
   if (/elder|very old/.test(text)) return 5;
   if (/keth|scout|nomad|hood/.test(text)) return 2;
   if (/captain/.test(text)) return 6;
-  if (/reeve|lord|lady|noble|dreyer|clerk|priest|scribe|agent/.test(text)) return 4;
-  if (/carrier|guild|porter|trader|merchant/.test(text)) return 3;
-  if (/guard|soldier|sergeant|warden/.test(text)) return 1;
+  if (/reeve|lord|lady|noble|dreyer|clerk|priest|scribe|agent|factor|salter/.test(text)) return 4;
+  if (/carrier|guild|porter|trader|merchant|wright|mason|drifter|runner/.test(text)) return 3;
+  if (/guard|soldier|sergeant|warden|rider/.test(text)) return 1;
   return 0;
 }
 function thingKind(e) {
   const s = e.state || {};
+  if (isVehicle(e)) return 'vehicle';
+  if (e.type === 'lock') return 'lock';
+  if (e.type === 'blueprint' || Array.isArray(s.stages)) return 'plan';
+  if (e.type === 'project' || ('stage' in s && 'crew' in s)) return 'works';
+  if ('wall_men' in s) return 'wall';
+  if (e.type === 'rubble' || 'stone' in s) return 'rubble';
+  if ('holds' in s && s.portable === false) return 'box';
+  if (/emberglass|shard/i.test(e.name || '') && !s.water_source) return 'shard';
   if (s.water_source) return 'well';
   if (e.type === 'letter' || typeof s.text === 'string') return 'letter';
   if (e.type === 'vein' || 'ember' in s) return 'vein';
@@ -1523,6 +1999,11 @@ function activityOf(e, you) {
   const props = (/(long glass|spyglass|glass in one hand)/.test(text) ? 1 : 0) | (/(ledger|tally)/.test(text) ? 2 : 0) | (/(yoke|jars|water-bearer)/.test(text) ? 4 : 0);
   const h = hashStr(e.id || e.name || 'x');
   if (s.dead || s.down || s.asleep) return { kind: 'lie', pose: 0, arms: 0, props: 0, spot: 'stand' };
+  const veh = S.set?.kind === 'deck' ? (S.set.here.state || {}) : null;
+  if (veh && [veh.driver, veh.driving].some((d) => d && (d === e.id || d === e.name))) return { kind: 'sit', pose: 1, arms: 4, props: 0, spot: 'driver' };
+  if (veh && !you) return { kind: 'sit', pose: 1, arms: props & 1 ? 1 : 0, props, spot: 'sit' };
+  if (/(tied to|bound to|a prisoner|captive|in irons)/.test(text)) return { kind: 'sit', pose: 1, arms: 2, props: 0, spot: 'prisoner' };
+  if (/(drifter|missed the last convoy|sell their arms|waiting to be paid)/.test(text)) return { kind: 'sit', pose: 1, arms: 0, props, spot: 'shade' };
   if (s.follows) return { kind: 'follow', leader: s.follows, pose: 0, arms: 0, props, spot: 'stand' };
   if (/(cross-legged|sitting|sits|seated)/.test(text)) {
     return { kind: 'sit', pose: 1, arms: props & 1 ? 1 : 0, props, spot: /(drip|stone cup|elder)/.test(text) ? 'elder' : 'sit', face: /(watching|eyes on|watch)/.test(text) ? 'landmark' : null };
@@ -1579,6 +2060,28 @@ function upsertEnt(id, props, target, fresh) {
   return e;
 }
 
+// what someone visibly bears (perception's `bears`), as flags for the body: blade, knife, maul, bow, spear
+function weaponFlags(list) {
+  let f = 0;
+  for (const w of list || []) {
+    const n = String(w.name || w).toLowerCase();
+    if (/\bbows?\b|crossbow|longbow/.test(n)) f |= 16;
+    else if (/spear|lance|pike|javelin/.test(n)) f |= 32;
+    else if (/maul|hammer|breaker|club|\bbar\b|axe/.test(n)) f |= 8;
+    else if (/knife|dagger|dirk|stiletto/.test(n)) f |= 4;
+    else f |= 2;
+  }
+  return f;
+}
+// which way an exit lies, from its route in the world's frame (east +x, north -z)
+function routeAngle(x) {
+  const r = x.route;
+  if (!Array.isArray(r) || r.length < 2) return null;
+  const a = r[0], b = r[r.length - 1];
+  const dx = b[0] - a[0], dn = b[1] - a[1];
+  return Math.hypot(dx, dn) < 1e-6 ? null : Math.atan2(-dn, dx);
+}
+
 function layoutEntities(st, fresh) {
   const set = S.set;
   if (!set) return;
@@ -1587,6 +2090,8 @@ function layoutEntities(st, fresh) {
   const present = (st.present || []).filter((e) => !(e.state && e.state.hidden));
   const people = [st.you, ...present.filter(isPerson)];
   const things = present.filter((e) => !isPerson(e));
+  const bearsKnown = 'bears' in (st.you || {}) || present.some((e) => 'bears' in e);
+  const floor = set.floor || 0;
 
   for (const e of people) {
     const you = e.id === st.you.id;
@@ -1599,11 +2104,12 @@ function layoutEntities(st, fresh) {
     const style = bodyStyle(e);
     const kneel = spot.kneel && act.kind === 'work';
     const pose = act.kind === 'sit' ? 1 : kneel ? 3 : 0;
-    const seat = act.kind === 'sit' ? (spot.y || 0) : 0;
+    const seat = (act.kind === 'sit' ? (spot.y || 0) : 0) + floor;
+    const wf = bearsKnown ? weaponFlags(e.bears) : (you ? ((st.holding || []).some((h) => h.state?.weapon) ? 2 : 0) : (style === 1 || style === 6 ? 2 : 0));
     const ent = upsertEnt(e.id, {
       kind: 'person', name: e.name, you, data: e, sel: S.sel === e.id,
       down: !!(s.down || s.dead || s.asleep), dead: !!s.dead, style, act, pose, arms: act.arms, props: act.props,
-      armed: you ? (st.holding || []).some((h) => h.state?.weapon) : style === 1 || style === 6,
+      armed: !!(wf & 2), wf,
       scale: (style === 5 ? 0.86 : 0.95) + (hashStr(e.id) % 9) / 100,
       faceTo: act.face === 'landmark' ? [set.landmark[0], set.landmark[2]] : spot.face || null,
       tagH: s.down || s.dead || s.asleep ? 0.95 : pose === 1 ? 1.55 : pose === 3 ? 1.75 : 2.2,
@@ -1613,35 +2119,53 @@ function layoutEntities(st, fresh) {
     keep.add(e.id);
   }
 
-  let li = 0;
+  let li = 0, vi = 0;
   for (const e of things) {
     const a = set.anchors.find((x) => x.re.test(e.name || ''));
     const tk = thingKind(e);
-    if (a) {
-      upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e, anchored: true, tagH: a.tagH ?? 1.2, pickH: (a.tagH ?? 1.2) * 0.5, pickR: a.pickR ?? 0.8 }, [a.p[0], 0, a.p[1]], true);
+    if (tk === 'vehicle') {
+      // a crawler stands where the set keeps room for one; rolling, it runs along its yaw
+      const sp = set.spots.vehicle[vi % set.spots.vehicle.length]; vi++;
+      upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e, anchored: false, vyaw: sp.yaw || 0, tagH: 5.0, pickH: 2.0, pickR: 3.2 }, [sp.p[0], floor, sp.p[1]], true);
+    } else if (a) {
+      upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e, anchored: !a.draw, tagH: a.tagH ?? 1.2, pickH: (a.tagH ?? 1.2) * 0.5, pickR: a.pickR ?? 0.8 }, [a.p[0], floor, a.p[1]], true);
     } else {
       const spots = set.spots.items.length ? set.spots.items : [{ p: [0, 0] }];
       const sp = spots[li % spots.length]; const ring = Math.floor(li / spots.length);
       li++;
-      upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e, anchored: false, tagH: 1.05, pickH: 0.4, pickR: 0.55 }, [sp.p[0] + ring * 0.7, 0, sp.p[1] + ring * 0.5], fresh);
+      upsertEnt(e.id, { kind: 'thing', tk, name: e.name, data: e, anchored: false, tagH: 1.05, pickH: 0.4, pickR: 0.55 }, [sp.p[0] + ring * 0.7, floor, sp.p[1] + ring * 0.5], fresh);
     }
     keep.add(e.id);
   }
 
+  // exits: where the set has a door for one, there; else in the direction its route really runs, folded into the
+  // half of the ring the camera can see so none stands behind it, and spread so none stands on another
   const here = mapPos(st.here.name);
+  const look = Math.atan2(-Math.cos(set.cam.yaw || 0), -Math.sin(set.cam.yaw || 0));
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const free = [];
+  (st.exits || []).forEach((x, k) => {
+    const over = set.exitAt.find((o) => o.re.test(x.name || ''));
+    if (over) return;
+    let a = routeAngle(x);
+    if (a == null) {
+      const there = mapPos(x.name);
+      if (here && there && (there[0] !== here[0] || there[1] !== here[1])) a = Math.atan2(there[1] - here[1], there[0] - here[0]);
+      else a = look + (k - ((st.exits.length - 1) / 2)) * 0.9;
+    }
+    const rel = wrap(a - look);
+    free.push({ k, rel: Math.sign(rel || 1) * Math.min(Math.abs(rel), 1.25) });
+  });
+  free.sort((p, q) => p.rel - q.rel);
+  for (let i = 1; i < free.length; i++) free[i].rel = Math.max(free[i].rel, free[i - 1].rel + 0.42);
+  const shift = free.length ? Math.max(0, free[free.length - 1].rel - 1.4) : 0;
+  const angleOf = new Map(free.map((f) => [f.k, look + f.rel - shift]));
   (st.exits || []).forEach((x, k) => {
     const id = 'exit:' + x.to;
-    let p = null;
     const over = set.exitAt.find((o) => o.re.test(x.name || ''));
-    if (over) p = over.p;
-    else {
-      const there = mapPos(x.name);
-      let a;
-      if (here && there && (there[0] !== here[0] || there[1] !== here[1])) a = Math.atan2(there[1] - here[1], there[0] - here[0]);
-      else a = -Math.PI / 2 + (k - ((st.exits.length - 1) / 2)) * 0.9;
-      p = [Math.cos(a) * set.exitR, Math.sin(a) * set.exitR];
-    }
-    upsertEnt(id, { kind: 'exit', name: x.name, placeId: x.to, idx: k + 1, tagH: 2.95, pickH: 1.3, pickR: 0.9 }, [p[0], 0, p[1]], true);
+    const a = angleOf.get(k);
+    const p = over ? over.p : [Math.cos(a) * set.exitR, Math.sin(a) * set.exitR];
+    upsertEnt(id, { kind: 'exit', name: x.name, placeId: x.to, idx: k + 1, locked: !!(x.locked || x.state?.locked), tagH: 2.95 + floor, pickH: 1.3 + floor, pickR: 0.9 }, [p[0], floor, p[1]], true);
     keep.add(id);
   });
 
@@ -1670,7 +2194,15 @@ function buildPlace(st) {
 function moveEnts(dt, now) {
   const k = 1 - Math.exp(-dt * 3.2);
   const ents = S.ents;
+  const floor = S.set?.floor || 0;
   for (const e of ents.values()) {
+    if (e.tk === 'vehicle') {
+      const run = e.data?.state?.moving ? ((now / 1000) * 3.2 + e.phase * 10) % 76 - 38 : 0;
+      const c = Math.cos(e.vyaw || 0), s = Math.sin(e.vyaw || 0);
+      e.pos = [e.home[0] + c * run, e.home[1] || 0, e.home[2] + s * run];
+      continue;
+    }
+    if (e.kind === 'person' && floor && (e.target[1] || 0) < floor) e.target[1] = floor;
     if (e.kind !== 'person' || e.down) {
       for (let i = 0; i < 3; i++) e.pos[i] += (e.target[i] - e.pos[i]) * k;
       e.walk = 0;
@@ -1754,7 +2286,7 @@ function route(e, act, now) {
 // ---------------------------------------------------------------------
 function personPrim(e) {
   const m = e.sel ? MAT.SEL : e.you ? MAT.YOU : e.down ? MAT.DOWN : MAT.PERSON;
-  const flags = (e.down ? 1 : 0) + (e.armed && !e.down ? 2 : 0);
+  const flags = (e.down ? 1 : 0) + (e.down ? 0 : (e.wf ?? (e.armed ? 2 : 0)));
   let arms = e.talking ? 6 : e.arms || 0;
   if ((e.walk || 0) > 0.5 && arms !== 5) arms = 0;
   return {
@@ -1765,28 +2297,60 @@ function personPrim(e) {
 }
 function thingPrims(e) {
   if (e.anchored) return [];
-  const [x, , z] = e.pos;
+  const [x, y0, z] = e.pos;
   const rot = e.phase;
+  const s = e.data?.state || {};
+  const n = Math.max(1, Math.min(6, Math.floor(Number(s.count) || 1)));
+  // a stack is that many of itself: lay out n copies of one piece in a small heap
+  const heap = (one) => { const out = []; for (let i = 0; i < n; i++) { const a = i * 2.39 + rot, r = i ? 0.22 + i * 0.05 : 0; out.push(...one([x + Math.cos(a) * r, y0, z + Math.sin(a) * r], rot + i)); } return out; };
   switch (e.tk) {
-    case 'well': return [PR.well([x, 0, z], 1.0, 0.75, 0.5, MAT.STONE), PR.cyl([x, 0.3, z], 0.75, 0.05, MAT.WATER)];
-    case 'letter': return [PR.box([x, 0.45, z], [0.3, 0.45, 0.22], MAT.STONE, rot, 0.03), PR.box([x, 0.92, z], [0.24, 0.015, 0.17], MAT.BONE, rot + 0.2, 0.005)];
-    case 'blade': return [PR.box([x, 0.05, z], [0.55, 0.03, 0.05], MAT.METAL, rot, 0.01)];
-    case 'skin': return [PR.ellipsoid([x, 0.18, z], [0.24, 0.17, 0.18], MAT.CLOTH, rot)];
-    case 'ward': return [PR.box([x, 0.06, z], [0.16, 0.06, 0.12], MAT.EXIT, rot, 0.02)];
-    case 'vein': return [PR.shards([x, 0, z], 1.0, 0.6, 0.3, 0.5, MAT.EMBER)];
-    case 'block': return [PR.box([x, 0.5, z], [0.5, 0.5, 0.5], MAT.STONE, rot, 0.06)];
-    default: return [PR.box([x, 0.22, z], [0.22, 0.22, 0.22], MAT.WOOD, rot, 0.03)];
+    case 'vehicle': return haulerPrims([x, y0, z], e.vyaw || 0, { lamp: isDim() });
+    case 'lock': return [PR.box([x, y0 + 0.5, z], [0.1, 0.12, 0.05], MAT.METAL, rot, 0.02), PR.torus([x, y0 + 0.66, z], 0.07, 0.018, 2, MAT.METAL, rot)];
+    case 'box': {
+      const shut = !!s.locked || (S.state?.present || []).some((o) => o.type === 'lock' && o.state?.locked && /strong|box|chest/i.test(o.name || ''));
+      return [PR.box([x, y0 + 0.38, z], [0.62, 0.38, 0.42], MAT.WOOD, rot, 0.04), PR.box([x, y0 + 0.4, z], [0.64, 0.05, 0.44], MAT.METAL, rot, 0.01),
+        PR.box([x, y0 + 0.78, z], [0.64, 0.04, 0.44], MAT.METAL, rot, 0.01), PR.box([x + Math.cos(rot) * 0.0, y0 + 0.5, z], [0.08, 0.1, 0.46], shut ? MAT.METAL : MAT.EXIT, rot, 0.01)];
+    }
+    case 'plan': return [PR.box([x - 0.6, y0 + 0.01, z], [0.03, 0.01, 2.4], MAT.BONE, 0, 0.005), PR.box([x - 0.9, y0 + 0.01, z + 1.8], [0.2, 0.01, 0.02], MAT.BONE, 0, 0.004)];
+    case 'works': case 'wall': {
+      // the broken stretch, raised course by course in pale new stone; a lime trough while the works stand
+      const done = e.tk === 'wall' ? 3 : Math.max(0, Math.min(3, Math.floor(Number(s.stage) || 0)));
+      const out = [];
+      for (let i = 0; i < done; i++) out.push(PR.box([x, 0.85 + i * 0.62 + 0.31, z], [0.5, 0.3, 2.35], MAT.SALT, 0, 0.03));
+      if (e.tk === 'works') out.push(PR.box([x - 1.6, 0.18, z + 1.2], [0.6, 0.18, 0.3], MAT.WOOD, 0.2, 0.03), PR.box([x - 1.6, 0.34, z + 1.2], [0.52, 0.03, 0.22], MAT.SALT, 0.2, 0.01));
+      return out;
+    }
+    case 'rubble': {
+      const k = Math.max(2, Math.min(9, Math.ceil((Number(s.stone) || 6) / 3)));
+      const out = [];
+      for (let i = 0; i < k; i++) { const a = i * 2.39, r = 0.25 + i * 0.12; out.push(PR.box([x + Math.cos(a) * r, 0.2 + (i % 3) * 0.12, z + Math.sin(a) * r], [0.3, 0.2, 0.22], MAT.STONE, a, 0.04)); }
+      return out;
+    }
+    case 'shard': return heap((p, r) => [PR.cone([p[0], p[1], p[2]], 0.06, 0.005, 0.22, MAT.EMBER, r)]);
+    case 'item': return heap((p, r) => [PR.box([p[0], p[1] + 0.16, p[2]], [0.16, 0.16, 0.16], MAT.WOOD, r, 0.03)]);
+    case 'well': return [PR.well([x, y0, z], 1.0, 0.75, 0.5, MAT.STONE), PR.cyl([x, y0 + 0.3, z], 0.75, 0.05, MAT.WATER)];
+    case 'letter': return s.portable ? heap((p, r) => [PR.box([p[0], p[1] + 0.02, p[2]], [0.16, 0.01, 0.12], MAT.BONE, r, 0.004)])
+      : [PR.box([x, y0 + 0.45, z], [0.3, 0.45, 0.22], MAT.STONE, rot, 0.03), PR.box([x, y0 + 0.92, z], [0.24, 0.015, 0.17], MAT.BONE, rot + 0.2, 0.005)];
+    case 'blade': return heap((p, r) => [PR.box([p[0], p[1] + 0.05, p[2]], [0.55, 0.03, 0.05], MAT.METAL, r, 0.01)]);
+    case 'skin': return heap((p, r) => [PR.ellipsoid([p[0], p[1] + 0.18, p[2]], [0.24, 0.17, 0.18], MAT.CLOTH, r)]);
+    case 'ward': return [PR.box([x, y0 + 0.06, z], [0.16, 0.06, 0.12], MAT.EXIT, rot, 0.02)];
+    case 'vein': return [PR.shards([x, y0, z], 1.0, 0.6, 0.3, 0.5, MAT.EMBER)];
+    case 'block': return [PR.box([x, y0 + 0.5, z], [0.5, 0.5, 0.5], MAT.STONE, rot, 0.06)];
+    default: return [PR.box([x, y0 + 0.22, z], [0.22, 0.22, 0.22], MAT.WOOD, rot, 0.03)];
   }
 }
 function pylonPrims(e) {
-  const [x, , z] = e.pos;
+  const [x, y, z] = e.pos;
   const sel = S.sel === e.placeId;
-  return [
-    PR.cyl([x, 0.1, z], 0.55, 0.1, MAT.STONE),
-    PR.box([x, 1.35, z], [0.2, 1.25, 0.2], MAT.STONE, 0.6, 0.05),
-    PR.box([x, 2.1, z], [0.23, 0.08, 0.23], sel ? MAT.LAMP : MAT.EXIT, 0.6, 0.02),
-    PR.box([x, 1.2, z], [0.23, 0.05, 0.23], sel ? MAT.LAMP : MAT.EXIT, 0.6, 0.02),
+  const band = sel ? MAT.LAMP : e.locked ? MAT.DARK : MAT.EXIT;
+  const out = [
+    PR.cyl([x, y + 0.1, z], 0.55, 0.1, MAT.STONE),
+    PR.box([x, y + 1.35, z], [0.2, 1.25, 0.2], MAT.STONE, 0.6, 0.05),
+    PR.box([x, y + 2.1, z], [0.23, 0.08, 0.23], band, 0.6, 0.02),
+    PR.box([x, y + 1.2, z], [0.23, 0.05, 0.23], band, 0.6, 0.02),
   ];
+  if (e.locked) out.push(PR.box([x, y + 1.65, z], [0.26, 0.11, 0.08], MAT.METAL, 0.6, 0.02), PR.torus([x, y + 1.82, z], 0.08, 0.02, 2, MAT.METAL, 0.6));
+  return out;
 }
 let dynG = [];
 function uploadDynamic(now) {
@@ -1896,8 +2460,11 @@ function setAmbient(amb) {
   };
   if (set?.cave) { S.amb.fogK = 0.02; S.amb.fogH = 0.02; S.amb.sunI = set.kind === 'deep' ? 0.8 : 0.95; S.amb.night = Math.max(T.night, 0.55); S.amb.rays = 0.35; S.amb.sky = 'cave'; }
   else S.amb.sky = T.sky;
-  // fires and lamps come and go with the dark: rebuild the set when that changes
-  if (set && prevNight != null && prevNight !== (S.amb.night > 0.25) && S.state) {
+  // fires and lamps come and go with the dark and with the world's word on them: rebuild the set when that changes
+  const here = S.state?.here;
+  const fireFlip = set && here && here.id === set.here.id && (here.state?.fire ?? null) !== set.fireAt;
+  const moveFlip = set && here && here.id === set.here.id && set.kind === 'deck' && !!here.state?.moving !== !!set.here.state?.moving;
+  if (set && S.state && ((prevNight != null && prevNight !== (S.amb.night > 0.25)) || fireFlip || moveFlip)) {
     S.set = buildSet(S.state); uploadStatic(S.set);
   }
 }

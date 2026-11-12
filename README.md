@@ -25,6 +25,10 @@ This repo is only the window onto it.
 | :---: | :---: | :---: |
 | ![Elder Taan by the drip, Iska with her yoke, a shaft of light on the black pool](docs/deepwell.jpg) | ![Under the dunes: a sand pour, the coils, a ringed mouth](docs/deep.jpg) | ![A crawler broken across the back, the ribs of it showing](docs/bones.jpg) |
 
+| The Riders' Hollow at dusk | Aboard Hauler Nine | The Counting House at night |
+| :---: | :---: | :---: |
+| ![Horses on the picket line under a rib of black rock, low fires, the riders' pennant](docs/hollow.jpg) | ![Riding the Guild's crawler up the Salt Road: Ossa on a cask, the driver at the wheel](docs/hauler.jpg) | ![A lamp on a chain, the counting table and its scales, the strongbox, the Guild's wright](docs/counting.jpg) |
+
 ## Run it
 
 You need Node 18 or newer. There is nothing to install.
@@ -47,9 +51,10 @@ Then open **http://localhost:4477**.
 
 ## What it does
 
-**Builds a set for each place.** The place's name and description pick one of ten sets, each
+**Builds a set for each place.** The place's name and description pick one of 23 sets, each
 built from signed-distance shapes (strata-cut cliffs, hoodoos, arches, crescent dunes,
-crawlers, tents, tarps, banners, bones) and seeded so it looks the same every visit:
+crawlers, tents, tarps, banners, bones, glassthorn, barrel cactus, horses) and seeded so it
+looks the same every visit:
 
 | Set | What's there |
 | --- | --- |
@@ -62,6 +67,19 @@ crawlers, tents, tarps, banners, bones) and seeded so it looks the same every vi
 | Deepwell | a cavern lit by one shaft: the black pool, the drip into a stone cup, cups on cords, a cookfire |
 | Bone Field | a crawler on its side, broken across the back, giant ribs, things glinting in the wreck |
 | Deep | under the dunes: a sand pour, slow coils with pale pits, a ringed mouth |
+| Guild Yard | baked-brick walls, crawler sheds, a tank on iron legs, the bunkhouse, the counting house, the gate with the Carriers' wheel |
+| Yard Bunkhouse | cots and sea chests, skins on pegs, a rack of Guild arms, the watch chalked on a slate, light through two windows |
+| Counting House | walls an arm thick, an iron-banded door, a lamp on a chain, the counting table and scales, the strongbox |
+| Dry Camp | three low tents behind a rib of black rock, empty picket lines, a small fire, a half-buried iron tank, a furled pennant |
+| Riders' Hollow | old fire rings under a second black rib; when the riders are in, horses on the picket line, low fires, a pennant, the tank on its wheeled bed |
+| Old Salt Works | brine pans gone to crust, a boiling shed fallen in, a seep strained through cloth into a trough |
+| Thornbrake | glassthorn and barrel cactus in the Scar's lee, a trodden run through it, the roofless house in the thick of it |
+| Tessel's Steading | a roofless house of fitted stone: the hearth, the cupboard, the trapdoor and its lock, TESSEL on the lintel |
+| Root cellar | rock-cut shelves of jars, a cask, light only down the ladder from the trap |
+| Weeping Rock | a cleft in the Scar wall: water down moss into a stone basin, a crown over a closed eye, a hum of wasps |
+| Low Well | a well-head of fitted stone over a dry throat, an empty frame, four cairns, the ridge behind |
+| Crawler's Lee | a dead hauler's rusted flank beside the road, sand blown smooth against it, a hollow where someone sleeps |
+| Aboard a vehicle | the crawler's bed underfoot, the hood rolled back to its hoops, the driver at the wheel, the road going by while it rolls |
 | Dunes | the fallback for anywhere else |
 
 **Lights it by the hour.** The world's time of day, light and weather words set the sun,
@@ -80,16 +98,31 @@ what they're doing, then puts them where that makes sense in the set:
 - The restless pace; captains stand with arms crossed; the downed lie where they fell.
 - When two people talk, they close the distance and turn to face each other.
 
+- Drifters at the Salt Works wait in the shed's shade; a man tied to a wheel sits bound at it.
+- Aboard a crawler, the driver sits at the wheel and everyone else rides on the casks.
+
 Nothing here needs an AI model or a key: the director is a small set of rules, so it adds no
 delay and costs nothing to run.
+
+**Follows the world as it changes.**
+- **Real directions.** An exit stands where its route in the world's map actually runs, folded
+  into the half of the set the camera can see. Sets with doors keep their exits at the doors.
+- **Hauler Nine.** The Guild's crawler is drawn wherever it stands, rolls through places on
+  its runs, and becomes the set itself when you ride it.
+- **Fires.** A place's fire burns when the world says it does, and the set relights when that
+  changes.
+- **The wall works.** In the Gate Yard the broken stretch of the wall rises a course at a time
+  as the works go on, beside the Scar rubble they are dressed from.
+- **Locks, stacks and boxes.** Locked ways show dark bands and a hasp, a strongbox shows
+  whether it is locked, and a stack of shards or skins is drawn as that many.
 
 **Draws people as silhouettes.** Bodies are signed distance fields with an outfit inferred from
 what the world says about each person: guards get helmets, Keth get hoods and cloaks, carriers
 get packs and wide hats, elders stoop, and reeves and clerks get long coats. There are poses
 (standing, sitting cross-legged, kneeling, lying) and props (a spyglass, a ledger, a water
 yoke, a staff). People walk with a stride, face where they're going, and gesture as they talk.
-A blade is drawn only for you, or for a guard by trade, so the viewer never reveals a hidden
-weapon.
+Weapons come from what the world says each person visibly bears: a blade at the hip, a knife,
+a maul or a bow across the back, a spear in hand. Nothing hidden is ever drawn.
 
 **Renders in three passes.** WebGL2 throughout. The first pass raymarches the set (ground,
 cave, every group of shapes whose bound is close enough to matter) into two render targets at
@@ -109,10 +142,19 @@ how it read your line before you press Enter:
 | `I tell Nico "the sand is loud today"` | speaks to someone |
 | `I nod slowly` | says the emote aloud: `*Corin nods slowly*` |
 | `go to the yard and talk to Ruhl` | chains steps; after a `go`, the next step runs once you've arrived |
+| `lie down and sleep`, `wake Taan`, `tend to the reeve's wound` | rest and healing |
+| `board the crawler`, `drive to the Gate Yard`, `stop the crawler`, `get off` | riding Hauler Nine; after boarding or driving, the next step waits until it pulls in |
+| `take three shards`, `put the shards in the strongbox`, `give two skins to Ossa` | stacks, boxes and counts |
+| `pick the lock`, `break the lock`, `unlock the door` | locks |
+| `write "meet me at the well" on the leaf`, `burn the letter` | paper and fire |
+| `dress the rubble`, `work as a mason`, `look at the works` | the wall works |
+| `dig at the vein`, `free Wick`, `leave word with Ossa for Ruhl: ...` | and the rest of what the world offers |
 
 **Narrates.** Your actions and the world's events are retold as terse, sensory,
 water-haunted prose, with italic inner thoughts and an epigraph whenever you arrive
-somewhere. Every line is original, written in Herbert's manner rather than quoted from
+somewhere. That includes sleep and waking, tending wounds, riding and stopping the crawler,
+locks picked or forced, glass dug and stone dressed; where the world sends its own scene line,
+the narrator uses that. Every line is original, written in Herbert's manner rather than quoted from
 his work. Your spoken words are never rewritten. The narrator runs from templates in the
 page, so it adds no delay. Its flavour is tuned to The Glass Reach.
 
